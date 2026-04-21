@@ -110,9 +110,13 @@ input::placeholder{color:rgba(255,255,255,.35)}
     height:100vh;
   }
 
-  /* hide desktop sidebar; we use the drawer instead */
+  /* hide desktop sidebar and resize handles; we use the drawer instead */
   .fm-sidebar{
     display:none;
+  }
+
+  .fm-desktop-only{
+    display:none !important;
   }
 
   .fm-chatpanel{

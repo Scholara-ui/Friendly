@@ -199,7 +199,7 @@ const Sidebar = memo(function Sidebar({
   }, [newChatOpen]);
 
   return (
-    <div className="fm-sidebar" style={{ display: "flex", flexDirection: "column" }}>
+    <div className="fm-sidebar">
       <div style={styles.sidebarTop}>
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
           <img src={logo} alt="Friendly" style={{ height: 50, width: "auto" }} />
@@ -2096,7 +2096,7 @@ export default function App() {
 
       <div className="fm-shell" style={{ display: "flex" }}>
         {!sidebarCollapsed ? (
-          <div style={{ width: sidebarWidth, minWidth: 0, flex: "0 0 auto" }}>
+          <div className="fm-desktop-only" style={{ width: sidebarWidth, minWidth: 0, flex: "0 0 auto" }}>
             <Sidebar
               me={me}
               conversations={conversations}
@@ -2125,6 +2125,7 @@ export default function App() {
 
         {sidebarCollapsed ? (
           <div
+            className="fm-desktop-only"
             role="separator"
             aria-orientation="vertical"
             title="Drag to show chats"
@@ -2165,6 +2166,7 @@ export default function App() {
           </div>
         ) : (
           <div
+            className="fm-desktop-only"
             role="separator"
             aria-orientation="vertical"
             title="Drag to resize chats"
