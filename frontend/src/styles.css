@@ -97,6 +97,13 @@ input::placeholder{color:rgba(255,255,255,.35)}
   transform:translateX(0);
 }
 
+/* Sidebar inside the drawer must always be visible */
+.fm-drawer .fm-sidebar{
+  display:flex;
+  height:100%;
+  border-radius:14px;
+}
+
 /* Mobile topbar shown only on small screens */
 .fm-topbar{
   display:none;
