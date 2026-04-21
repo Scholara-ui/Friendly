@@ -3,9 +3,10 @@ import logo from "./assets/logo.png";
 import friendlyBanner from "./assets/friendly-banner.png";
 import friendlyChatGhost from "./assets/friendly-chat-ghost.png";
 
-const API_BASE =
+const API_BASE = (
   import.meta.env.VITE_API_BASE ||
-  `${window.location.protocol}//${window.location.hostname}:8000`;
+  `${window.location.protocol}//${window.location.hostname}:8000`
+).replace(/\/+$/, "");
 const WS_BASE = API_BASE.replace(/^http/, "ws");
 
 // --- localStorage keys
