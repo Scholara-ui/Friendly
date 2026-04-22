@@ -1678,6 +1678,14 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages]);
 
+  // Scroll to show typing bubble when other user starts typing
+  useEffect(() => {
+    const otherTyping = Object.values(typingByUserId).some(Boolean);
+    if (otherTyping && shouldAutoScrollRef.current) {
+      requestAnimationFrame(scrollToBottom);
+    }
+  }, [typingByUserId]);
+
   // ---------- UI ----------
   if (!token || !me) {
     return (
@@ -2770,6 +2778,27 @@ export default function App() {
                 </div>
               );
             })}
+
+            {/* Typing indicator bubble */}
+            {(() => {
+              const otherTyping = Object.entries(typingByUserId).some(([uid, v]) => v && String(uid) !== String(me.id));
+              if (!otherTyping) return null;
+              const avatar = otherUser?.avatar_url ? absoluteUrl(otherUser.avatar_url) : null;
+              const name = otherUser?.display_name || otherUser?.username || "…";
+              return (
+                <div style={{ display: "flex", alignItems: "flex-end", gap: 8, padding: "2px 14px 8px" }}>
+                  {avatar
+                    ? <img src={avatar} alt={name} style={{ width: 28, height: 28, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
+                    : <div style={{ width: 28, height: 28, borderRadius: "50%", background: "rgba(88,166,255,0.25)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800, flexShrink: 0 }}>{name[0]?.toUpperCase()}</div>
+                  }
+                  <div style={{ background: "var(--theirs)", borderRadius: "18px 18px 18px 4px", padding: "10px 16px", display: "flex", alignItems: "center", gap: 5 }}>
+                    <span className="fm-typing-dot" />
+                    <span className="fm-typing-dot" />
+                    <span className="fm-typing-dot" />
+                  </div>
+                </div>
+              );
+            })()}
           </div>
 
           <div style={styles.composer}>
