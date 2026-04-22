@@ -405,7 +405,7 @@ const Sidebar = memo(function Sidebar({
                         textAlign: "left",
                       }}
                     >
-                      <AvatarLetter name={label} size={30} />
+                      <Avatar name={label} avatar_url={u.avatar_url || null} size={30} />
                       <div style={{ minWidth: 0, flex: 1 }}>
                         <div style={{ fontWeight: 850, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                           {label}
