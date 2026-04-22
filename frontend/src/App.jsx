@@ -1041,9 +1041,7 @@ export default function App() {
           if (type === "message" && payload.message) {
             setMessages((prev) => {
               const exists = prev.some((m) => String(m.id) === String(payload.message.id));
-              const next = exists ? prev : [...prev, payload.message];
-              messagesCacheRef.current[selectedId] = next;
-              return next;
+              return exists ? prev : [...prev, payload.message];
             });
             try {
               ws.send(JSON.stringify({ type: "delivered", last_delivered_message_id: Number(payload.message.id) }));
@@ -1387,10 +1385,17 @@ export default function App() {
       shouldAutoScrollRef.current = true;
       requestAnimationFrame(scrollToBottom);
 
-      await api(`/conversations/${selectedId}/messages`, {
+      const real = await api(`/conversations/${selectedId}/messages`, {
         method: "POST",
         token,
         body: { text },
+      });
+
+      // Replace temp optimistic with the confirmed real message
+      setMessages((prev) => {
+        const next = prev.map((m) => (m.id === tempId ? real : m));
+        messagesCacheRef.current[selectedId] = next;
+        return next;
       });
 
       // stop typing after sending
