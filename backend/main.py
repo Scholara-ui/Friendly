@@ -270,18 +270,19 @@ def ensure_sqlite_schema() -> None:
         conn.commit()
 
 
-if settings.database_url.startswith("sqlite"):
-    ensure_sqlite_schema()
-
-if not settings.database_url.startswith("sqlite"):
-    with engine.connect() as conn:
-        try:
-            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR UNIQUE"))
-            conn.commit()
-        except Exception:
-            conn.rollback()
-
-Base.metadata.create_all(bind=engine)
+try:
+    if settings.database_url.startswith("sqlite"):
+        ensure_sqlite_schema()
+    else:
+        with engine.connect() as conn:
+            try:
+                conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR UNIQUE"))
+                conn.commit()
+            except Exception:
+                conn.rollback()
+    Base.metadata.create_all(bind=engine)
+except Exception as _startup_db_err:
+    logger.error("Startup DB init failed (will retry on first request): %s", _startup_db_err)
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login/form")
 
