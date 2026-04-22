@@ -485,7 +485,7 @@ def register(payload: RegisterRequest, request: Request, db: Session = Depends(g
         username=username,
         email=email,
         password_hash=hash_password(payload.password),
-        display_name=None,
+        display_name=username,
     )
     db.add(u)
     db.commit()

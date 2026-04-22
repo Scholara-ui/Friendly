@@ -517,6 +517,7 @@ export default function App() {
   const [authConfirmPass, setAuthConfirmPass] = useState("");
   const [authError, setAuthError] = useState("");
   const [acceptTerms, setAcceptTerms] = useState(false);
+  const [isNewUser, setIsNewUser] = useState(false);
   const [forgotOpen, setForgotOpen] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
   const [forgotMsg, setForgotMsg] = useState("");
@@ -980,6 +981,23 @@ export default function App() {
 
       // Heartbeat — keeps Render from dropping the idle connection after ~55s
       ws.onopen = () => {
+        // On reconnect, fetch latest messages to catch anything sent while disconnected
+        if (retries > 0) {
+          api(`/conversations/${selectedId}/messages`, { token })
+            .then((data) => {
+              if (!destroyed && Array.isArray(data)) {
+                setMessages((prev) => {
+                  const prevIds = new Set(prev.filter(m => !String(m.id).startsWith("temp-")).map(m => String(m.id)));
+                  const incoming = data.filter(m => !prevIds.has(String(m.id)));
+                  if (incoming.length === 0) return prev;
+                  return [...prev.filter(m => !String(m.id).startsWith("temp-")), ...data].filter(
+                    (m, i, arr) => arr.findIndex(x => String(x.id) === String(m.id)) === i
+                  );
+                });
+              }
+            })
+            .catch(() => { /* ignore */ });
+        }
         retries = 0;
         pingInterval = setInterval(() => {
           if (ws.readyState === WebSocket.OPEN) {
@@ -1147,6 +1165,7 @@ export default function App() {
         const result = await api("/auth/register", { method: "POST", body: { email, password } });
         sessionStorage.setItem(LS_TOKEN, result.access_token);
         setToken(result.access_token);
+        setIsNewUser(true);
         setAuthPass("");
         setAuthEmail("");
         setAuthConfirmPass("");
@@ -1948,6 +1967,28 @@ export default function App() {
   return (
     <>
       {drawerOpen ? <div className="fm-overlay" onClick={() => setDrawerOpen(false)} /> : null}
+
+      {isNewUser && me ? (
+        <div style={styles.profileOverlay}>
+          <div style={{ ...styles.profileModal, maxWidth: 360 }} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.profileHeader}>
+              <div style={{ fontWeight: 900, fontSize: 14 }}>Welcome to Friendly! 👋</div>
+            </div>
+            <div style={{ padding: "16px 20px" }}>
+              <div style={{ fontSize: 13, color: "rgba(255,255,255,0.85)", lineHeight: 1.6 }}>
+                Your username is <span style={{ fontWeight: 800, color: "rgba(120,185,255,0.95)" }}>@{me.username}</span>. This is permanent and can't be changed — it's how others find you.
+              </div>
+              <div style={{ fontSize: 13, color: "rgba(255,255,255,0.7)", marginTop: 10, lineHeight: 1.6 }}>
+                You can set a <strong>display name</strong> anytime in your Profile — that's what other users see in chats.
+              </div>
+              <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+                <button style={{ ...styles.primaryBtn, flex: 1 }} onClick={() => { setIsNewUser(false); openProfileModal(); }}>Set display name</button>
+                <button style={{ ...styles.actionBtn, flex: 1 }} onClick={() => setIsNewUser(false)}>Got it</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {resetToken ? (
         <div style={styles.profileOverlay}>
