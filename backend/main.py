@@ -579,7 +579,7 @@ def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db))
 
 
 @app.post("/auth/login", response_model=TokenResponse)
-def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)):
+async def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)):
     client_ip = request.client.host if request.client else "unknown"
     rate_limit(client_ip, "/auth/login")
     username = require_non_blank_username(payload.username)
@@ -597,7 +597,7 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
 
 
 @app.post("/auth/login/form", response_model=TokenResponse)
-def login_form(
+async def login_form(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
 ):
