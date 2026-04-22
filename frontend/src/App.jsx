@@ -513,8 +513,19 @@ export default function App() {
   const [authMode, setAuthMode] = useState("login");
   const [authUser, setAuthUser] = useState("");
   const [authPass, setAuthPass] = useState("");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authConfirmPass, setAuthConfirmPass] = useState("");
   const [authError, setAuthError] = useState("");
   const [acceptTerms, setAcceptTerms] = useState(false);
+  const [forgotOpen, setForgotOpen] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotMsg, setForgotMsg] = useState("");
+  const [forgotBusy, setForgotBusy] = useState(false);
+  const [resetToken, setResetToken] = useState(() => new URLSearchParams(window.location.search).get("reset_token") || "");
+  const [resetPass, setResetPass] = useState("");
+  const [resetConfirmPass, setResetConfirmPass] = useState("");
+  const [resetMsg, setResetMsg] = useState("");
+  const [resetBusy, setResetBusy] = useState(false);
 
   const [conversations, setConversations] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
@@ -539,6 +550,7 @@ export default function App() {
   const [profileBusy, setProfileBusy] = useState(false);
   const [profileError, setProfileError] = useState("");
   const [profileName, setProfileName] = useState("");
+  const [profileEmail, setProfileEmail] = useState("");
   const [profileFile, setProfileFile] = useState(null);
   const [profilePreviewUrl, setProfilePreviewUrl] = useState(null);
   const [profileAvatarViewOpen, setProfileAvatarViewOpen] = useState(false);
@@ -1098,28 +1110,69 @@ export default function App() {
     e.preventDefault();
     setAuthError("");
 
+    if (authMode === "register") {
+      const email = authEmail.trim();
+      const password = authPass;
+      if (!email || !password) { setAuthError("Please enter email and password."); return; }
+      if (authConfirmPass !== password) { setAuthError("Passwords do not match."); return; }
+      if (!acceptTerms) { setAuthError("Please accept the Terms & Conditions."); return; }
+      try {
+        const result = await api("/auth/register", { method: "POST", body: { email, password } });
+        sessionStorage.setItem(LS_TOKEN, result.access_token);
+        setToken(result.access_token);
+        setAuthPass("");
+        setAuthEmail("");
+        setAuthConfirmPass("");
+      } catch (err) {
+        setAuthError(err.message || "Registration failed.");
+      }
+      return;
+    }
+
     const username = authUser.trim();
     const password = authPass;
-
     if (!username || !password) {
       setAuthError("Please enter username and password.");
       return;
     }
-    if (authMode === "register" && !acceptTerms) {
-      setAuthError("Please accept the Terms & Conditions to create an account.");
-      return;
-    }
-
     try {
-      if (authMode === "register") {
-        await api("/auth/register", { method: "POST", body: { username, password } });
-      }
       const login = await api("/auth/login", { method: "POST", body: { username, password } });
       sessionStorage.setItem(LS_TOKEN, login.access_token);
       setToken(login.access_token);
       setAuthPass("");
     } catch (err) {
       setAuthError(err.message || "Auth failed.");
+    }
+  }
+
+  async function handleForgotSubmit(e) {
+    e.preventDefault();
+    setForgotBusy(true);
+    setForgotMsg("");
+    try {
+      const r = await api("/auth/forgot-password", { method: "POST", body: { email: forgotEmail.trim() } });
+      setForgotMsg(r.detail || "If that email is registered, a reset link has been sent.");
+    } catch (err) {
+      setForgotMsg(err.message || "Something went wrong.");
+    } finally {
+      setForgotBusy(false);
+    }
+  }
+
+  async function handleResetSubmit(e) {
+    e.preventDefault();
+    if (resetPass !== resetConfirmPass) { setResetMsg("Passwords do not match."); return; }
+    setResetBusy(true);
+    setResetMsg("");
+    try {
+      const r = await api("/auth/reset-password", { method: "POST", body: { token: resetToken, new_password: resetPass } });
+      setResetMsg(r.detail || "Password reset! Please log in.");
+      setResetToken("");
+      window.history.replaceState({}, "", window.location.pathname);
+    } catch (err) {
+      setResetMsg(err.message || "Reset failed. The link may have expired.");
+    } finally {
+      setResetBusy(false);
     }
   }
 
@@ -1431,7 +1484,8 @@ export default function App() {
   function openProfileModal() {
     setProfileError("");
     setProfileBusy(false);
-    setProfileName(me?.display_name || me?.username || "");
+    setProfileName(me?.display_name || "");
+    setProfileEmail(me?.email || "");
     setStatusError("");
     setStatusBusy(false);
     setStatusText(me?.status_text || "");
@@ -1457,6 +1511,7 @@ export default function App() {
     try {
       const fd = new FormData();
       fd.append("display_name", profileName);
+      fd.append("email", profileEmail);
       if (profileFile) fd.append("avatar", profileFile);
 
       const updated = await apiForm("/me/profile", {
@@ -1701,6 +1756,36 @@ export default function App() {
                 <div style={{ marginTop: 6 }}><b>8. Changes:</b> Terms may be updated. Continued use means you accept revised terms.</div>
                 <div style={{ marginTop: 6 }}><b>9. Contact:</b> Created by Tarquin F. G, copyright © 2026.</div>
               </div>
+            ) : authMode === "register" ? (
+              <>
+                <label style={styles.label}>Email</label>
+                <input
+                  value={authEmail}
+                  onChange={(e) => setAuthEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  style={styles.input}
+                  type="email"
+                  autoComplete="email"
+                />
+                <label style={styles.label}>Password</label>
+                <input
+                  value={authPass}
+                  onChange={(e) => setAuthPass(e.target.value)}
+                  placeholder="••••••••"
+                  style={styles.input}
+                  type="password"
+                  autoComplete="new-password"
+                />
+                <label style={styles.label}>Confirm password</label>
+                <input
+                  value={authConfirmPass}
+                  onChange={(e) => setAuthConfirmPass(e.target.value)}
+                  placeholder="••••••••"
+                  style={styles.input}
+                  type="password"
+                  autoComplete="new-password"
+                />
+              </>
             ) : (
               <>
                 <label style={styles.label}>Username</label>
@@ -1711,7 +1796,6 @@ export default function App() {
                   style={styles.input}
                   autoComplete="username"
                 />
-
                 <label style={styles.label}>Password</label>
                 <input
                   value={authPass}
@@ -1719,8 +1803,17 @@ export default function App() {
                   placeholder="••••••••"
                   style={styles.input}
                   type="password"
-                  autoComplete={authMode === "login" ? "current-password" : "new-password"}
+                  autoComplete="current-password"
                 />
+                <div style={{ textAlign: "right", marginTop: 4 }}>
+                  <button
+                    type="button"
+                    onClick={() => { setForgotOpen(true); setForgotEmail(""); setForgotMsg(""); }}
+                    style={{ background: "none", border: "none", color: "rgba(120,185,255,0.9)", fontSize: 12, cursor: "pointer", padding: 0 }}
+                  >
+                    Forgot password?
+                  </button>
+                </div>
               </>
             )}
 
@@ -1774,6 +1867,54 @@ export default function App() {
   return (
     <>
       {drawerOpen ? <div className="fm-overlay" onClick={() => setDrawerOpen(false)} /> : null}
+
+      {resetToken ? (
+        <div style={styles.profileOverlay}>
+          <div style={{ ...styles.profileModal, maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.profileHeader}>
+              <div style={{ fontWeight: 900, fontSize: 14 }}>Reset your password</div>
+            </div>
+            <div style={{ padding: "16px 20px" }}>
+              {resetMsg ? (
+                <div style={{ color: "rgba(120,255,160,0.9)", fontSize: 13, marginBottom: 12 }}>{resetMsg}</div>
+              ) : (
+                <form onSubmit={handleResetSubmit}>
+                  <label style={styles.label}>New password</label>
+                  <input value={resetPass} onChange={(e) => setResetPass(e.target.value)} type="password" style={styles.input} autoComplete="new-password" placeholder="••••••••" />
+                  <label style={styles.label}>Confirm new password</label>
+                  <input value={resetConfirmPass} onChange={(e) => setResetConfirmPass(e.target.value)} type="password" style={styles.input} autoComplete="new-password" placeholder="••••••••" />
+                  {resetMsg && <div style={styles.error}>{resetMsg}</div>}
+                  <button style={{ ...styles.primaryBtn, marginTop: 12 }} type="submit" disabled={resetBusy}>{resetBusy ? "Resetting…" : "Set new password"}</button>
+                </form>
+              )}
+              {resetMsg && <button style={{ ...styles.actionBtn, marginTop: 10, width: "100%" }} onClick={() => { setResetToken(""); setResetMsg(""); }}>Back to login</button>}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {forgotOpen ? (
+        <div style={styles.profileOverlay} onClick={() => setForgotOpen(false)}>
+          <div style={{ ...styles.profileModal, maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.profileHeader}>
+              <div style={{ fontWeight: 900, fontSize: 14 }}>Forgot password</div>
+              <button type="button" style={styles.linkMini} onClick={() => setForgotOpen(false)}>✕</button>
+            </div>
+            <div style={{ padding: "16px 20px" }}>
+              {forgotMsg ? (
+                <div style={{ color: "rgba(120,255,160,0.9)", fontSize: 13 }}>{forgotMsg}</div>
+              ) : (
+                <form onSubmit={handleForgotSubmit}>
+                  <label style={styles.label}>Your email address</label>
+                  <input value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)} type="email" style={styles.input} autoComplete="email" placeholder="you@example.com" />
+                  <button style={{ ...styles.primaryBtn, marginTop: 12 }} type="submit" disabled={forgotBusy}>{forgotBusy ? "Sending…" : "Send reset link"}</button>
+                </form>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {profileOpen ? <div style={styles.profileOverlay} onClick={closeProfileModal} /> : null}
       {profileOpen ? (
         <div style={styles.profileModal} role="dialog" aria-modal="true" aria-label="Profile">
@@ -1849,6 +1990,19 @@ export default function App() {
                 style={styles.input2}
                 disabled={profileBusy}
               />
+            </div>
+
+            <div style={{ marginTop: 12 }}>
+              <div style={{ color: "var(--muted)", fontSize: 12, marginBottom: 4 }}>Email</div>
+              <input
+                value={profileEmail}
+                onChange={(e) => setProfileEmail(e.target.value)}
+                style={styles.input2}
+                type="email"
+                placeholder="Used for password reset"
+                disabled={profileBusy}
+              />
+              {!profileEmail && <div style={{ fontSize: 11, color: "rgba(255,200,80,0.85)", marginTop: 4 }}>Add email to enable password recovery</div>}
             </div>
 
             <div style={{ marginTop: 12 }}>

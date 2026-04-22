@@ -1,10 +1,19 @@
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 
 
 class RegisterRequest(BaseModel):
-    username: str = Field(min_length=3, max_length=30)
+    email: EmailStr
     password: str = Field(min_length=6, max_length=128)
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str = Field(min_length=10, max_length=200)
+    new_password: str = Field(min_length=6, max_length=128)
 
 
 class LoginRequest(BaseModel):
@@ -20,6 +29,7 @@ class TokenResponse(BaseModel):
 class MeResponse(BaseModel):
     id: int
     username: str
+    email: str | None = None
     display_name: str | None = None
     avatar_url: str | None = None
     status_image_url: str | None = None
@@ -89,6 +99,7 @@ class ConversationStatesOut(BaseModel):
 class ProfileUpdateRequest(BaseModel):
     display_name: str | None = Field(default=None, max_length=50)
     avatar_url: str | None = Field(default=None, max_length=300)
+    email: EmailStr | None = None
 
 
 class MessageOut(BaseModel):

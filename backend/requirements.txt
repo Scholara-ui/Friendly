@@ -33,3 +33,5 @@ websockets==16.0
 google-genai==1.68.0
 psycopg2-binary==2.9.10
 cloudinary==1.41.0
+resend==2.4.0
+email-validator==2.2.0

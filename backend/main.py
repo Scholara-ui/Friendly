@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import json
+import re
+import resend as _resend_sdk
+import secrets
 import uuid
 from pathlib import Path
 import time
@@ -25,6 +29,7 @@ from models import (
     ConversationDeliveryState,
     ConversationReadState,
     Message,
+    PasswordResetToken,
     User,
 )
 from schemas import (
@@ -35,6 +40,8 @@ from schemas import (
     LoginRequest,
     MeResponse,
     RegisterRequest,
+    ForgotPasswordRequest,
+    ResetPasswordRequest,
     TokenResponse,
     MessageCreateRequest,
     MessageEditRequest,
@@ -114,6 +121,42 @@ def save_image_bytes(data: bytes, *, folder: str, public_id: str, local_dir: Pat
     file_path = local_dir / local_filename
     file_path.write_bytes(data)
     return f"{local_url_prefix}/{local_filename}"
+
+if settings.resend_api_key:
+    _resend_sdk.api_key = settings.resend_api_key
+
+
+def send_reset_email(to_email: str, token: str) -> None:
+    if not settings.resend_api_key:
+        logger.warning("RESEND_API_KEY not set — skipping password reset email")
+        return
+    reset_url = f"{settings.frontend_url}/?reset_token={token}"
+    _resend_sdk.Emails.send({
+        "from": settings.from_email,
+        "to": [to_email],
+        "subject": "Reset your Friendly password",
+        "html": (
+            f"<p>Hi,</p>"
+            f"<p>Click the link below to reset your password. It expires in 1 hour.</p>"
+            f"<p><a href='{reset_url}'>{reset_url}</a></p>"
+            f"<p>If you didn't request this, ignore this email.</p>"
+        ),
+    })
+
+
+def _hash_token(raw: str) -> str:
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def _generate_username_from_email(email: str, db: Session) -> str:
+    prefix = re.sub(r"[^a-z0-9_.-]", "", email.split("@")[0].lower()) or "user"
+    candidate = prefix
+    counter = 2
+    while db.query(User).filter(User.username == candidate).first():
+        candidate = f"{prefix}{counter}"
+        counter += 1
+    return candidate
+
 
 _gemini_client: genai.Client | None = None
 if settings.gemini_api_key:
@@ -229,6 +272,15 @@ def ensure_sqlite_schema() -> None:
 
 if settings.database_url.startswith("sqlite"):
     ensure_sqlite_schema()
+
+if not settings.database_url.startswith("sqlite"):
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR UNIQUE"))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+
 Base.metadata.create_all(bind=engine)
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login/form")
@@ -418,31 +470,79 @@ def health():
     return {"status": "ok"}
 
 
-@app.post("/auth/register", response_model=MeResponse)
+@app.post("/auth/register", response_model=TokenResponse)
 def register(payload: RegisterRequest, request: Request, db: Session = Depends(get_db)):
     client_ip = request.client.host if request.client else "unknown"
     rate_limit(client_ip, "/auth/register")
-    username = require_non_blank_username(payload.username)
 
-    existing = db.query(User).filter(User.username == username).first()
-    if existing:
-        raise HTTPException(status_code=409, detail="Username already taken")
+    email = payload.email.strip().lower()
+    if db.query(User).filter(func.lower(User.email) == email).first():
+        raise HTTPException(status_code=409, detail="An account with this email already exists")
 
-    u = User(username=username, password_hash=hash_password(payload.password), display_name=username)
+    username = _generate_username_from_email(email, db)
+    u = User(
+        username=username,
+        email=email,
+        password_hash=hash_password(payload.password),
+        display_name=None,
+    )
     db.add(u)
     db.commit()
     db.refresh(u)
 
-    return MeResponse(
-        id=u.id,
-        username=u.username,
-        display_name=u.display_name,
-        avatar_url=u.avatar_url,
-        status_image_url=getattr(u, "status_image_url", None),
-        status_text=getattr(u, "status_text", None),
-        status_expires_at=getattr(u, "status_expires_at", None),
-        last_active_at=u.last_active_at,
-    )
+    token = create_access_token(user_id=u.id, username=u.username)
+    return TokenResponse(access_token=token)
+
+
+@app.post("/auth/forgot-password")
+def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    email = payload.email.strip().lower()
+    u = db.query(User).filter(func.lower(User.email) == email).first()
+    if u:
+        db.query(PasswordResetToken).filter(
+            PasswordResetToken.user_id == u.id,
+            PasswordResetToken.used_at.is_(None),
+        ).delete()
+        db.commit()
+
+        raw = secrets.token_urlsafe(32)
+        prt = PasswordResetToken(
+            user_id=u.id,
+            token_hash=_hash_token(raw),
+            expires_at=datetime.utcnow() + timedelta(hours=1),
+        )
+        db.add(prt)
+        db.commit()
+
+        try:
+            send_reset_email(u.email, raw)
+        except Exception as exc:
+            logger.error("Failed to send reset email: %s", exc)
+
+    return {"detail": "If that email is registered, a reset link has been sent"}
+
+
+@app.post("/auth/reset-password")
+def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db)):
+    token_hash = _hash_token(payload.token)
+    prt = db.query(PasswordResetToken).filter(
+        PasswordResetToken.token_hash == token_hash,
+    ).first()
+
+    if not prt or prt.used_at is not None or prt.expires_at < datetime.utcnow():
+        raise HTTPException(status_code=400, detail="Invalid or expired reset link")
+
+    u = db.query(User).filter(User.id == prt.user_id).first()
+    if not u:
+        raise HTTPException(status_code=400, detail="Invalid reset link")
+
+    u.password_hash = hash_password(payload.new_password)
+    prt.used_at = datetime.utcnow()
+    db.add(u)
+    db.add(prt)
+    db.commit()
+
+    return {"detail": "Password reset successfully"}
 
 
 @app.post("/auth/login", response_model=TokenResponse)
@@ -481,6 +581,7 @@ def me(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     return MeResponse(
         id=u.id,
         username=u.username,
+        email=getattr(u, "email", None),
         display_name=u.display_name,
         avatar_url=u.avatar_url,
         status_image_url=s_url,
@@ -553,6 +654,7 @@ def update_me(
 @app.post("/me/profile", response_model=MeResponse)
 def update_profile(
     display_name: str | None = Form(default=None),
+    email: str | None = Form(default=None),
     avatar: UploadFile | None = File(default=None),
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
@@ -562,6 +664,14 @@ def update_profile(
     if display_name is not None:
         name = display_name.strip()
         u.display_name = name or None
+
+    if email is not None:
+        new_email = email.strip().lower()
+        if new_email and new_email != getattr(u, "email", None):
+            conflict = db.query(User).filter(func.lower(User.email) == new_email, User.id != u.id).first()
+            if conflict:
+                raise HTTPException(status_code=409, detail="Email already in use")
+            u.email = new_email
 
     if avatar is not None:
         if not avatar.content_type or not avatar.content_type.startswith("image/"):
@@ -601,6 +711,7 @@ def update_profile(
     return MeResponse(
         id=u.id,
         username=u.username,
+        email=getattr(u, "email", None),
         display_name=u.display_name,
         avatar_url=u.avatar_url,
         status_image_url=getattr(u, "status_image_url", None),

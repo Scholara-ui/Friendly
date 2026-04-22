@@ -11,6 +11,7 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, nullable=False, unique=True, index=True)
+    email = Column(String, nullable=True, unique=True, index=True)
     password_hash = Column(String, nullable=False)
     display_name = Column(String, nullable=True)
     avatar_url = Column(String, nullable=True)
@@ -93,3 +94,16 @@ class ConversationDeliveryState(Base):
     __table_args__ = (
         UniqueConstraint("conversation_id", "user_id", name="uq_conversation_delivery_state"),
     )
+
+
+class PasswordResetToken(Base):
+    __tablename__ = "password_reset_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    token_hash = Column(String, nullable=False, unique=True, index=True)
+    expires_at = Column(DateTime, nullable=False)
+    used_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    user = relationship("User")
