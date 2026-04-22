@@ -32,6 +32,11 @@ class Settings:
             _db_url = "postgresql://" + _db_url[len("postgres://"):]
         self.database_url: str = _db_url
 
+        # Cloudinary (persistent image storage; falls back to local disk if unset)
+        self.cloudinary_cloud_name: str | None = os.getenv("CLOUDINARY_CLOUD_NAME") or None
+        self.cloudinary_api_key: str | None = os.getenv("CLOUDINARY_API_KEY") or None
+        self.cloudinary_api_secret: str | None = os.getenv("CLOUDINARY_API_SECRET") or None
+
         # CORS
         default_origins = [
             "http://localhost:5173",

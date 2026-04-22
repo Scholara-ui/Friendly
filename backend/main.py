@@ -74,6 +74,47 @@ message_uploads_dir.mkdir(parents=True, exist_ok=True)
 status_uploads_dir = uploads_dir / "status"
 status_uploads_dir.mkdir(parents=True, exist_ok=True)
 
+# Cloudinary (persistent storage). If credentials are not set, we fall back to
+# writing to local disk (ephemeral on Render free tier).
+import cloudinary
+import cloudinary.uploader
+
+_cloudinary_configured = False
+if (
+    settings.cloudinary_cloud_name
+    and settings.cloudinary_api_key
+    and settings.cloudinary_api_secret
+):
+    cloudinary.config(
+        cloud_name=settings.cloudinary_cloud_name,
+        api_key=settings.cloudinary_api_key,
+        api_secret=settings.cloudinary_api_secret,
+        secure=True,
+    )
+    _cloudinary_configured = True
+
+
+def save_image_bytes(data: bytes, *, folder: str, public_id: str, local_dir: Path, local_filename: str, local_url_prefix: str) -> str:
+    """Store image bytes in Cloudinary when configured, otherwise on local disk.
+
+    Returns a URL suitable for direct use by the frontend (absolute https URL
+    from Cloudinary, or a relative "/uploads/..." path for local fallback).
+    """
+    if _cloudinary_configured:
+        result = cloudinary.uploader.upload(
+            data,
+            folder=f"friendly/{folder}",
+            public_id=public_id,
+            resource_type="image",
+            overwrite=True,
+        )
+        return result.get("secure_url") or result.get("url")
+
+    local_dir.mkdir(parents=True, exist_ok=True)
+    file_path = local_dir / local_filename
+    file_path.write_bytes(data)
+    return f"{local_url_prefix}/{local_filename}"
+
 _gemini_client: genai.Client | None = None
 if settings.gemini_api_key:
     _gemini_client = genai.Client(api_key=settings.gemini_api_key)
@@ -542,12 +583,16 @@ def update_profile(
             }
             ext = by_type.get(avatar.content_type, ".png")
 
-        filename = f"{u.id}_{uuid.uuid4().hex}{ext}"
-        file_path = uploads_dir / filename
-        file_path.write_bytes(data)
-
-        # Store as a relative URL so frontend can easily build an absolute URL.
-        u.avatar_url = f"/uploads/{filename}"
+        public_id = f"{u.id}_{uuid.uuid4().hex}"
+        filename = f"{public_id}{ext}"
+        u.avatar_url = save_image_bytes(
+            data,
+            folder="avatars",
+            public_id=public_id,
+            local_dir=uploads_dir,
+            local_filename=filename,
+            local_url_prefix="/uploads",
+        )
 
     db.add(u)
     db.commit()
@@ -599,10 +644,16 @@ async def update_status(
             "image/webp": ".webp",
         }
         ext = ext_map.get(image.content_type, Path(image.filename or "").suffix or ".png")
-        filename = f"status_{u.id}_{uuid.uuid4().hex}{ext}"
-        file_path = status_uploads_dir / filename
-        file_path.write_bytes(data)
-        u.status_image_url = f"/uploads/status/{filename}"
+        public_id = f"status_{u.id}_{uuid.uuid4().hex}"
+        filename = f"{public_id}{ext}"
+        u.status_image_url = save_image_bytes(
+            data,
+            folder="status",
+            public_id=public_id,
+            local_dir=status_uploads_dir,
+            local_filename=filename,
+            local_url_prefix="/uploads/status",
+        )
     else:
         u.status_image_url = None
 
@@ -933,17 +984,24 @@ async def send_image_message(
         "image/webp": ".webp",
     }
     ext = ext_map.get(image.content_type, Path(image.filename or "").suffix or ".png")
-    filename = f"{me_user.id}_{conversation_id}_{uuid.uuid4().hex}{ext}"
+    public_id = f"{me_user.id}_{conversation_id}_{uuid.uuid4().hex}"
+    filename = f"{public_id}{ext}"
 
-    file_path = message_uploads_dir / filename
-    file_path.write_bytes(data)
+    image_url = save_image_bytes(
+        data,
+        folder="messages",
+        public_id=public_id,
+        local_dir=message_uploads_dir,
+        local_filename=filename,
+        local_url_prefix="/uploads/messages",
+    )
 
     cap = (caption or "").strip()
     msg = Message(
         conversation_id=conversation_id,
         sender_id=me_user.id,
         text=cap,
-        image_url=f"/uploads/messages/{filename}",
+        image_url=image_url,
     )
     db.add(msg)
     db.commit()
