@@ -280,6 +280,12 @@ try:
                 conn.commit()
             except Exception:
                 conn.rollback()
+        with engine.connect() as conn:
+            try:
+                conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 1"))
+                conn.commit()
+            except Exception:
+                conn.rollback()
     Base.metadata.create_all(bind=engine)
 except Exception as _startup_db_err:
     logger.error("Startup DB init failed (will retry on first request): %s", _startup_db_err)
@@ -320,6 +326,10 @@ def get_current_user(token: str, db: Session) -> User:
     u = db.query(User).filter(User.id == user_id).first()
     if not u:
         raise HTTPException(status_code=401, detail="User not found")
+
+    token_ver = int(payload.get("ver", 1))
+    if token_ver != int(getattr(u, "token_version", 1) or 1):
+        raise HTTPException(status_code=401, detail="session_replaced")
 
     u.last_active_at = datetime.utcnow()
     exp = getattr(u, "status_expires_at", None)
@@ -418,21 +428,40 @@ def upsert_delivery_state(
 class ConnectionManager:
     def __init__(self) -> None:
         self._rooms: Dict[int, Set[WebSocket]] = {}
+        self._user_sockets: Dict[int, Set[WebSocket]] = {}
         self._lock = asyncio.Lock()
 
-    async def connect(self, conversation_id: int, ws: WebSocket) -> None:
+    async def connect(self, conversation_id: int, ws: WebSocket, user_id: int) -> None:
         await ws.accept()
         async with self._lock:
             self._rooms.setdefault(conversation_id, set()).add(ws)
+            self._user_sockets.setdefault(user_id, set()).add(ws)
 
-    async def disconnect(self, conversation_id: int, ws: WebSocket) -> None:
+    async def disconnect(self, conversation_id: int, ws: WebSocket, user_id: int) -> None:
         async with self._lock:
             room = self._rooms.get(conversation_id)
-            if not room:
-                return
-            room.discard(ws)
-            if not room:
-                self._rooms.pop(conversation_id, None)
+            if room:
+                room.discard(ws)
+                if not room:
+                    self._rooms.pop(conversation_id, None)
+            user_socks = self._user_sockets.get(user_id)
+            if user_socks:
+                user_socks.discard(ws)
+                if not user_socks:
+                    self._user_sockets.pop(user_id, None)
+
+    async def kick_user(self, user_id: int) -> None:
+        async with self._lock:
+            sockets = list(self._user_sockets.get(user_id, set()))
+        for sock in sockets:
+            try:
+                await sock.send_text(json.dumps({"type": "session_replaced"}))
+            except Exception:
+                pass
+            try:
+                await sock.close()
+            except Exception:
+                pass
 
     async def broadcast(self, conversation_id: int, payload: dict, *, exclude: WebSocket | None = None) -> None:
         async with self._lock:
@@ -491,7 +520,10 @@ def register(payload: RegisterRequest, request: Request, db: Session = Depends(g
     db.commit()
     db.refresh(u)
 
-    token = create_access_token(user_id=u.id, username=u.username)
+    u.token_version = int(getattr(u, "token_version", 0) or 0) + 1
+    db.commit()
+    db.refresh(u)
+    token = create_access_token(user_id=u.id, username=u.username, token_version=u.token_version)
     return TokenResponse(access_token=token)
 
 
@@ -556,7 +588,11 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
     if not u or not verify_password(payload.password, u.password_hash):
         raise HTTPException(status_code=401, detail="Invalid username or password")
 
-    token = create_access_token(user_id=u.id, username=u.username)
+    u.token_version = int(getattr(u, "token_version", 0) or 0) + 1
+    db.commit()
+    db.refresh(u)
+    asyncio.create_task(ws_manager.kick_user(u.id))
+    token = create_access_token(user_id=u.id, username=u.username, token_version=u.token_version)
     return TokenResponse(access_token=token)
 
 
@@ -571,7 +607,11 @@ def login_form(
     if not u or not verify_password(form_data.password, u.password_hash):
         raise HTTPException(status_code=401, detail="Invalid username or password")
 
-    token = create_access_token(user_id=u.id, username=u.username)
+    u.token_version = int(getattr(u, "token_version", 0) or 0) + 1
+    db.commit()
+    db.refresh(u)
+    asyncio.create_task(ws_manager.kick_user(u.id))
+    token = create_access_token(user_id=u.id, username=u.username, token_version=u.token_version)
     return TokenResponse(access_token=token)
 
 
@@ -1525,7 +1565,7 @@ async def conversation_ws(ws: WebSocket, conversation_id: int):
     finally:
         db.close()
 
-    await ws_manager.connect(conversation_id, ws)
+    await ws_manager.connect(conversation_id, ws, me_id)
     try:
         await ws.send_text(
             json.dumps({"type": "hello", "conversation_id": conversation_id, "user_id": me_id})
@@ -1620,6 +1660,6 @@ async def conversation_ws(ws: WebSocket, conversation_id: int):
         pass
     finally:
         try:
-            await ws_manager.disconnect(conversation_id, ws)
+            await ws_manager.disconnect(conversation_id, ws, me_id)
         except Exception:
             pass

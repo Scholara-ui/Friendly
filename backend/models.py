@@ -19,6 +19,7 @@ class User(Base):
     status_text = Column(String, nullable=True)
     status_expires_at = Column(DateTime, nullable=True)
     last_active_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    token_version = Column(Integer, default=1, nullable=False)
 
 
 class Conversation(Base):

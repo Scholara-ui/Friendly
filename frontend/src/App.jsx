@@ -518,6 +518,7 @@ export default function App() {
   const [authError, setAuthError] = useState("");
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [isNewUser, setIsNewUser] = useState(false);
+  const [kickedOut, setKickedOut] = useState(false);
   const [forgotOpen, setForgotOpen] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
   const [forgotMsg, setForgotMsg] = useState("");
@@ -728,11 +729,12 @@ export default function App() {
 
         setMe(data);
         setTimeout(() => newChatRef.current?.focus(), 50);
-      } catch {
+      } catch (err) {
         sessionStorage.removeItem(LS_TOKEN);
         if (!cancelled) {
           setToken("");
           setMe(null);
+          if (err?.message === "session_replaced") setKickedOut(true);
         }
       }
     }
@@ -1011,6 +1013,15 @@ export default function App() {
           const payload = JSON.parse(evt.data);
           const type = payload?.type;
 
+          if (type === "session_replaced") {
+            destroyed = true;
+            sessionStorage.removeItem("fm_token");
+            setToken("");
+            setMe(null);
+            setKickedOut(true);
+            return;
+          }
+
           if (type === "message" && payload.message) {
             setMessages((prev) => {
               const exists = prev.some((m) => String(m.id) === String(payload.message.id));
@@ -1181,6 +1192,7 @@ export default function App() {
       setAuthError("Please enter username and password.");
       return;
     }
+    if (!window.confirm("Logging in will end any other active sessions on other devices. Continue?")) return;
     try {
       const login = await api("/auth/login", { method: "POST", body: { username, password } });
       sessionStorage.setItem(LS_TOKEN, login.access_token);
@@ -1921,6 +1933,22 @@ export default function App() {
           &copy; 2026 Created by Tarquin F. G
         </div>
       </div>
+
+      {kickedOut ? (
+        <div style={styles.profileOverlay}>
+          <div style={{ ...styles.profileModal, maxWidth: 360 }} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.profileHeader}>
+              <div style={{ fontWeight: 900, fontSize: 14 }}>Signed out</div>
+            </div>
+            <div style={{ padding: "16px 20px" }}>
+              <div style={{ fontSize: 13, color: "rgba(255,255,255,0.85)", lineHeight: 1.6 }}>
+                Your account was signed in on another device, so this session has ended.
+              </div>
+              <button style={{ ...styles.primaryBtn, marginTop: 16, width: "100%" }} onClick={() => setKickedOut(false)}>OK</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {resetToken ? (
         <div style={styles.profileOverlay}>
@@ -2878,7 +2906,7 @@ export default function App() {
                     if (!selectedId) return;
                     sendTyping(true);
                     if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
-                    typingTimerRef.current = setTimeout(() => sendTyping(false), 900);
+                    typingTimerRef.current = setTimeout(() => sendTyping(false), 3000);
                   }}
                   onFocus={() => setKodiOpen(false)}
                 />
