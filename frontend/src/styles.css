@@ -21,6 +21,8 @@
 *{box-sizing:border-box}
 html,body{height:100%}
 body{
+  overscroll-behavior:none;
+  -webkit-tap-highlight-color: transparent;
   margin:0;
   color:var(--text);
   background:
@@ -31,6 +33,7 @@ body{
 }
 
 button,input{font:inherit}
+input,textarea{font-size:16px !important;} /* prevent iOS auto-zoom */
 button:disabled{opacity:.6; cursor:not-allowed}
 input::placeholder{color:rgba(255,255,255,.35)}
 
@@ -43,7 +46,7 @@ input::placeholder{color:rgba(255,255,255,.35)}
 
 /* ---------- Mobile / Responsive Layout Helpers ---------- */
 .fm-shell{
-  height:100vh;
+  height:100dvh;
   display:grid;
   grid-template-columns: 340px 1fr;
   gap:14px;
@@ -85,7 +88,7 @@ input::placeholder{color:rgba(255,255,255,.35)}
   position:fixed;
   top:0;
   left:0;
-  height:100vh;
+  height:100dvh;
   width:min(360px, 88vw);
   z-index:60;
   transform:translateX(-110%);
@@ -114,7 +117,7 @@ input::placeholder{color:rgba(255,255,255,.35)}
     grid-template-columns: 1fr;
     gap:0;
     padding:0;
-    height:100vh;
+    height:100dvh;
   }
 
   /* hide desktop sidebar and resize handles; we use the drawer instead */
@@ -128,7 +131,7 @@ input::placeholder{color:rgba(255,255,255,.35)}
 
   .fm-chatpanel{
     border-radius:0;
-    height:100vh;
+    height:100dvh;
   }
 
   .fm-topbar{

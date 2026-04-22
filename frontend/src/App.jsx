@@ -519,6 +519,8 @@ export default function App() {
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [isNewUser, setIsNewUser] = useState(false);
   const [kickedOut, setKickedOut] = useState(false);
+  const [loginConfirmOpen, setLoginConfirmOpen] = useState(false);
+  const loginConfirmResolveRef = useRef(null);
   const [forgotOpen, setForgotOpen] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
   const [forgotMsg, setForgotMsg] = useState("");
@@ -1208,7 +1210,11 @@ export default function App() {
       setAuthError("Please enter username and password.");
       return;
     }
-    if (!window.confirm("Logging in will end any other active sessions on other devices. Continue?")) return;
+    const confirmed = await new Promise((resolve) => {
+      loginConfirmResolveRef.current = resolve;
+      setLoginConfirmOpen(true);
+    });
+    if (!confirmed) return;
     try {
       const login = await api("/auth/login", { method: "POST", body: { username, password } });
       sessionStorage.setItem(LS_TOKEN, login.access_token);
@@ -1949,6 +1955,25 @@ export default function App() {
           &copy; 2026 Created by Tarquin F. G
         </div>
       </div>
+
+      {loginConfirmOpen ? (
+        <div style={styles.profileOverlay}>
+          <div style={{ ...styles.profileModal, maxWidth: 340 }} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.profileHeader}>
+              <div style={{ fontWeight: 900, fontSize: 14 }}>Sign in</div>
+            </div>
+            <div style={{ padding: "0 4px 8px" }}>
+              <div style={{ fontSize: 13, color: "rgba(255,255,255,0.8)", lineHeight: 1.6, marginBottom: 16 }}>
+                Logging in will end any other active sessions on other devices.
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button style={{ ...styles.actionBtn, flex: 1 }} onClick={() => { setLoginConfirmOpen(false); loginConfirmResolveRef.current?.(false); }}>Cancel</button>
+                <button style={{ ...styles.primaryBtn, flex: 1 }} onClick={() => { setLoginConfirmOpen(false); loginConfirmResolveRef.current?.(true); }}>Continue</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {kickedOut ? (
         <div style={styles.profileOverlay}>
@@ -3125,7 +3150,7 @@ export default function App() {
 
 const styles = {
   fullCenter: {
-    minHeight: "100vh",
+    minHeight: "100dvh",
     display: "grid",
     placeItems: "center",
     padding: 20,
@@ -3412,6 +3437,8 @@ const styles = {
     left: "50%",
     transform: "translate(-50%, -50%)",
     width: "min(520px, 92vw)",
+    maxHeight: "90dvh",
+    overflowY: "auto",
     background: "var(--panel)",
     border: "1px solid var(--border)",
     borderRadius: 18,
