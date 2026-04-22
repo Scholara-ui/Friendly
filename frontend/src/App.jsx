@@ -964,68 +964,93 @@ export default function App() {
   useEffect(() => {
     if (!token || !me || !selectedId) return;
 
-    const ws = new WebSocket(`${WS_BASE}/ws/conversations/${selectedId}?token=${encodeURIComponent(token)}`);
-    wsRef.current = ws;
+    let destroyed = false;
+    let retries = 0;
+    const MAX_RETRIES = 5;
+    let pingInterval = null;
+    let reconnectTimer = null;
 
-    ws.onmessage = (evt) => {
-      try {
-        const payload = JSON.parse(evt.data);
-        const type = payload?.type;
+    function connect() {
+      if (destroyed) return;
 
-        if (type === "message" && payload.message) {
-          setMessages((prev) => {
-            const exists = prev.some((m) => String(m.id) === String(payload.message.id));
-            return exists ? prev : [...prev, payload.message];
-          });
-          // tell server it's delivered
-          try {
-            ws.send(JSON.stringify({ type: "delivered", last_delivered_message_id: Number(payload.message.id) }));
-          } catch {
-            // ignore
+      const ws = new WebSocket(`${WS_BASE}/ws/conversations/${selectedId}?token=${encodeURIComponent(token)}`);
+      wsRef.current = ws;
+
+      // Heartbeat — keeps Render from dropping the idle connection after ~55s
+      ws.onopen = () => {
+        retries = 0;
+        pingInterval = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            try { ws.send(JSON.stringify({ type: "ping" })); } catch { /* ignore */ }
           }
-        }
+        }, 25000);
+      };
 
-        if ((type === "message_updated" || type === "message_deleted") && payload.message) {
-          setMessages((prev) =>
-            prev.map((m) => (String(m.id) === String(payload.message.id) ? { ...m, ...payload.message } : m))
-          );
-        }
+      ws.onmessage = (evt) => {
+        try {
+          const payload = JSON.parse(evt.data);
+          const type = payload?.type;
 
-        if (type === "typing") {
-          const uid = payload.user_id;
-          const isTyping = Boolean(payload.is_typing);
-          if (uid) {
-            setTypingByUserId((prev) => ({ ...prev, [uid]: isTyping }));
+          if (type === "message" && payload.message) {
+            setMessages((prev) => {
+              const exists = prev.some((m) => String(m.id) === String(payload.message.id));
+              return exists ? prev : [...prev, payload.message];
+            });
+            try {
+              ws.send(JSON.stringify({ type: "delivered", last_delivered_message_id: Number(payload.message.id) }));
+            } catch { /* ignore */ }
           }
-        }
 
-        if (type === "read" && payload.read) {
-          const uid = payload.read.user_id;
-          const lastRead = Number(payload.read.last_read_message_id || 0);
-          if (uid) setReadByUserId((prev) => ({ ...prev, [uid]: lastRead }));
-        }
+          if ((type === "message_updated" || type === "message_deleted") && payload.message) {
+            setMessages((prev) =>
+              prev.map((m) => (String(m.id) === String(payload.message.id) ? { ...m, ...payload.message } : m))
+            );
+          }
 
-        if (type === "delivered" && payload.delivered) {
-          const uid = payload.delivered.user_id;
-          const lastDelivered = Number(payload.delivered.last_delivered_message_id || 0);
-          if (uid) setDeliveredByUserId((prev) => ({ ...prev, [uid]: lastDelivered }));
-        }
-      } catch {
-        // ignore
-      }
-    };
+          if (type === "typing") {
+            const uid = payload.user_id;
+            const isTyping = Boolean(payload.is_typing);
+            if (uid) setTypingByUserId((prev) => ({ ...prev, [uid]: isTyping }));
+          }
 
-    ws.onclose = () => {
-      if (wsRef.current === ws) wsRef.current = null;
-    };
+          if (type === "read" && payload.read) {
+            const uid = payload.read.user_id;
+            const lastRead = Number(payload.read.last_read_message_id || 0);
+            if (uid) setReadByUserId((prev) => ({ ...prev, [uid]: lastRead }));
+          }
+
+          if (type === "delivered" && payload.delivered) {
+            const uid = payload.delivered.user_id;
+            const lastDelivered = Number(payload.delivered.last_delivered_message_id || 0);
+            if (uid) setDeliveredByUserId((prev) => ({ ...prev, [uid]: lastDelivered }));
+          }
+        } catch { /* ignore */ }
+      };
+
+      ws.onerror = () => {
+        try { ws.close(); } catch { /* ignore */ }
+      };
+
+      ws.onclose = () => {
+        clearInterval(pingInterval);
+        pingInterval = null;
+        if (wsRef.current === ws) wsRef.current = null;
+        if (!destroyed && retries < MAX_RETRIES) {
+          const delay = Math.min(1000 * 2 ** retries, 30000);
+          retries += 1;
+          reconnectTimer = setTimeout(connect, delay);
+        }
+      };
+    }
+
+    connect();
 
     return () => {
-      try {
-        ws.close();
-      } catch {
-        // ignore
-      }
-      if (wsRef.current === ws) wsRef.current = null;
+      destroyed = true;
+      clearInterval(pingInterval);
+      clearTimeout(reconnectTimer);
+      try { wsRef.current?.close(); } catch { /* ignore */ }
+      wsRef.current = null;
       setTypingByUserId({});
       setDeliveredByUserId({});
     };
