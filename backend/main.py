@@ -1514,16 +1514,20 @@ def ai_suggestions(
 @app.websocket("/ws/conversations/{conversation_id}")
 async def conversation_ws(ws: WebSocket, conversation_id: int):
     token = ws.query_params.get("token") or ""
+
+    # Auth: open a short-lived session, verify, then release it immediately
     db: Session = SessionLocal()
     try:
         me_user = get_current_user(token, db)
         require_member(db, me_user.id, conversation_id)
-        await ws_manager.connect(conversation_id, ws)
+        me_id = me_user.id
+    finally:
+        db.close()
 
+    await ws_manager.connect(conversation_id, ws)
+    try:
         await ws.send_text(
-            json.dumps(
-                {"type": "hello", "conversation_id": conversation_id, "user_id": me_user.id}
-            )
+            json.dumps({"type": "hello", "conversation_id": conversation_id, "user_id": me_id})
         )
 
         while True:
@@ -1538,49 +1542,52 @@ async def conversation_ws(ws: WebSocket, conversation_id: int):
                 is_typing = bool(payload.get("is_typing"))
                 await ws_manager.broadcast(
                     conversation_id,
-                    {"type": "typing", "user_id": me_user.id, "is_typing": is_typing},
+                    {"type": "typing", "user_id": me_id, "is_typing": is_typing},
                     exclude=ws,
                 )
             elif ptype == "read":
-                # allow read updates over WS (same logic as REST)
                 try:
                     last_read = int(payload.get("last_read_message_id") or 0)
                 except Exception:
                     last_read = 0
 
-                state = (
-                    db.query(ConversationReadState)
-                    .filter(
-                        ConversationReadState.conversation_id == conversation_id,
-                        ConversationReadState.user_id == me_user.id,
+                db2: Session = SessionLocal()
+                try:
+                    state = (
+                        db2.query(ConversationReadState)
+                        .filter(
+                            ConversationReadState.conversation_id == conversation_id,
+                            ConversationReadState.user_id == me_id,
+                        )
+                        .first()
                     )
-                    .first()
-                )
-                now = datetime.utcnow()
-                if state:
-                    if last_read > state.last_read_message_id:
-                        state.last_read_message_id = last_read
-                    state.updated_at = now
-                else:
-                    state = ConversationReadState(
-                        conversation_id=conversation_id,
-                        user_id=me_user.id,
-                        last_read_message_id=last_read,
-                        updated_at=now,
+                    now = datetime.utcnow()
+                    if state:
+                        if last_read > state.last_read_message_id:
+                            state.last_read_message_id = last_read
+                        state.updated_at = now
+                    else:
+                        state = ConversationReadState(
+                            conversation_id=conversation_id,
+                            user_id=me_id,
+                            last_read_message_id=last_read,
+                            updated_at=now,
+                        )
+                        db2.add(state)
+                    db2.commit()
+                    db2.refresh(state)
+                    out = ReadReceiptOut(
+                        conversation_id=state.conversation_id,
+                        user_id=state.user_id,
+                        last_read_message_id=state.last_read_message_id,
+                        updated_at=state.updated_at,
                     )
-                    db.add(state)
-                db.commit()
-                db.refresh(state)
+                finally:
+                    db2.close()
 
-                out = ReadReceiptOut(
-                    conversation_id=state.conversation_id,
-                    user_id=state.user_id,
-                    last_read_message_id=state.last_read_message_id,
-                    updated_at=state.updated_at,
-                )
                 await ws_manager.broadcast(
                     conversation_id,
-                    {"type": "read", "read": out.model_dump(), "from_user_id": me_user.id},
+                    {"type": "read", "read": out.model_dump(), "from_user_id": me_id},
                     exclude=ws,
                 )
             elif ptype == "delivered":
@@ -1589,19 +1596,24 @@ async def conversation_ws(ws: WebSocket, conversation_id: int):
                 except Exception:
                     last_delivered = 0
 
-                out = upsert_delivery_state(
-                    db,
-                    conversation_id=conversation_id,
-                    user_id=me_user.id,
-                    last_delivered_message_id=last_delivered,
-                )
+                db2: Session = SessionLocal()
+                try:
+                    out = upsert_delivery_state(
+                        db2,
+                        conversation_id=conversation_id,
+                        user_id=me_id,
+                        last_delivered_message_id=last_delivered,
+                    )
+                finally:
+                    db2.close()
+
                 await ws_manager.broadcast(
                     conversation_id,
-                    {"type": "delivered", "delivered": out.model_dump(), "from_user_id": me_user.id},
+                    {"type": "delivered", "delivered": out.model_dump(), "from_user_id": me_id},
                     exclude=ws,
                 )
             else:
-                # unknown type
+                # unknown type (includes "ping" keepalive — no DB needed)
                 continue
     except WebSocketDisconnect:
         pass
@@ -1610,4 +1622,3 @@ async def conversation_ws(ws: WebSocket, conversation_id: int):
             await ws_manager.disconnect(conversation_id, ws)
         except Exception:
             pass
-        db.close()
