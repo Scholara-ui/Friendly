@@ -1655,6 +1655,7 @@ export default function App() {
   // ---------- UI ----------
   if (!token || !me) {
     return (
+      <>
       <div style={styles.fullCenter}>
         <img
           src={friendlyBanner}
@@ -1886,6 +1887,54 @@ export default function App() {
           &copy; 2026 Created by Tarquin F. G
         </div>
       </div>
+
+      {resetToken ? (
+        <div style={styles.profileOverlay}>
+          <div style={{ ...styles.profileModal, maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.profileHeader}>
+              <div style={{ fontWeight: 900, fontSize: 14 }}>Reset your password</div>
+            </div>
+            <div style={{ padding: "16px 20px" }}>
+              {resetMsg ? (
+                <div style={{ color: "rgba(120,255,160,0.9)", fontSize: 13, marginBottom: 12 }}>{resetMsg}</div>
+              ) : (
+                <form onSubmit={handleResetSubmit}>
+                  <label style={styles.label}>New password</label>
+                  <input value={resetPass} onChange={(e) => setResetPass(e.target.value)} type="password" style={styles.input} autoComplete="new-password" placeholder="••••••••" />
+                  <label style={styles.label}>Confirm new password</label>
+                  <input value={resetConfirmPass} onChange={(e) => setResetConfirmPass(e.target.value)} type="password" style={styles.input} autoComplete="new-password" placeholder="••••••••" />
+                  {resetMsg && <div style={styles.error}>{resetMsg}</div>}
+                  <button style={{ ...styles.primaryBtn, marginTop: 12 }} type="submit" disabled={resetBusy}>{resetBusy ? "Resetting…" : "Set new password"}</button>
+                </form>
+              )}
+              {resetMsg && <button style={{ ...styles.actionBtn, marginTop: 10, width: "100%" }} onClick={() => { setResetToken(""); setResetMsg(""); }}>Back to login</button>}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {forgotOpen ? (
+        <div style={styles.profileOverlay} onClick={() => setForgotOpen(false)}>
+          <div style={{ ...styles.profileModal, maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.profileHeader}>
+              <div style={{ fontWeight: 900, fontSize: 14 }}>Forgot password</div>
+              <button type="button" style={styles.linkMini} onClick={() => setForgotOpen(false)}>✕</button>
+            </div>
+            <div style={{ padding: "16px 20px" }}>
+              {forgotMsg ? (
+                <div style={{ color: "rgba(120,255,160,0.9)", fontSize: 13 }}>{forgotMsg}</div>
+              ) : (
+                <form onSubmit={handleForgotSubmit}>
+                  <label style={styles.label}>Your email address</label>
+                  <input value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)} type="email" style={styles.input} autoComplete="email" placeholder="you@example.com" />
+                  <button style={{ ...styles.primaryBtn, marginTop: 12 }} type="submit" disabled={forgotBusy}>{forgotBusy ? "Sending…" : "Send reset link"}</button>
+                </form>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </>
     );
   }
 
