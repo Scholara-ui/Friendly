@@ -591,6 +591,9 @@ export default function App() {
   const sidebarCollapsed = sidebarWidth <= 0;
   const dragRef = useRef({ active: false, startX: 0, startW: 0 });
 
+  // Per-conversation message cache so switching chats shows old messages instantly
+  const messagesCacheRef = useRef({});
+
   // Realtime (ws): typing + read receipts
   const wsRef = useRef(null);
   const typingTimerRef = useRef(null);
@@ -853,14 +856,25 @@ export default function App() {
   useEffect(() => {
     if (!token || !me || !selectedId) return;
 
+    // Show cached messages instantly while the fresh fetch runs
+    const cached = messagesCacheRef.current[selectedId];
+    if (cached && cached.length > 0) {
+      setMessages(cached);
+      shouldAutoScrollRef.current = true;
+      requestAnimationFrame(scrollToBottom);
+    } else {
+      setMessages([]);
+    }
+
     let cancelled = false;
 
     async function loadOnce() {
       try {
-        setLoadingMsgs(true);
+        if (!cached || cached.length === 0) setLoadingMsgs(true);
         const data = await api(`/conversations/${selectedId}/messages`, { token });
         if (cancelled) return;
 
+        messagesCacheRef.current[selectedId] = data;
         setMessages(data);
         // mark delivered once we have the messages on screen
         if (data.length) {
@@ -1025,7 +1039,9 @@ export default function App() {
           if (type === "message" && payload.message) {
             setMessages((prev) => {
               const exists = prev.some((m) => String(m.id) === String(payload.message.id));
-              return exists ? prev : [...prev, payload.message];
+              const next = exists ? prev : [...prev, payload.message];
+              messagesCacheRef.current[selectedId] = next;
+              return next;
             });
             try {
               ws.send(JSON.stringify({ type: "delivered", last_delivered_message_id: Number(payload.message.id) }));
