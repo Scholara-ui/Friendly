@@ -450,6 +450,16 @@ class ConnectionManager:
                 if not user_socks:
                     self._user_sockets.pop(user_id, None)
 
+    async def broadcast_presence(self, to_user_id: int, from_user_id: int, online: bool) -> None:
+        async with self._lock:
+            sockets = list(self._user_sockets.get(to_user_id, set()))
+        data = json.dumps({"type": "presence", "user_id": from_user_id, "online": online})
+        for sock in sockets:
+            try:
+                await sock.send_text(data)
+            except Exception:
+                pass
+
     async def kick_user(self, user_id: int) -> None:
         async with self._lock:
             sockets = list(self._user_sockets.get(user_id, set()))
@@ -630,6 +640,12 @@ def me(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
         status_expires_at=s_exp,
         last_active_at=u.last_active_at,
     )
+
+
+@app.get("/users/online")
+async def get_online_users(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    get_current_user(token, db)
+    return {"online_ids": list(ws_manager._user_sockets.keys())}
 
 
 @app.get("/users", response_model=List[UserPublic])
@@ -1562,6 +1578,15 @@ async def conversation_ws(ws: WebSocket, conversation_id: int):
         me_user = get_current_user(token, db)
         require_member(db, me_user.id, conversation_id)
         me_id = me_user.id
+        other_participant_ids = [
+            r[0]
+            for r in db.query(ConversationParticipant.user_id)
+            .filter(
+                ConversationParticipant.conversation_id == conversation_id,
+                ConversationParticipant.user_id != me_id,
+            )
+            .all()
+        ]
     finally:
         db.close()
 
@@ -1570,6 +1595,8 @@ async def conversation_ws(ws: WebSocket, conversation_id: int):
         await ws.send_text(
             json.dumps({"type": "hello", "conversation_id": conversation_id, "user_id": me_id})
         )
+        for other_id in other_participant_ids:
+            await ws_manager.broadcast_presence(other_id, me_id, True)
 
         while True:
             raw = await ws.receive_text()
@@ -1663,3 +1690,6 @@ async def conversation_ws(ws: WebSocket, conversation_id: int):
             await ws_manager.disconnect(conversation_id, ws, me_id)
         except Exception:
             pass
+        if not ws_manager._user_sockets.get(me_id):
+            for other_id in other_participant_ids:
+                await ws_manager.broadcast_presence(other_id, me_id, False)

@@ -519,6 +519,7 @@ export default function App() {
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [isNewUser, setIsNewUser] = useState(false);
   const [kickedOut, setKickedOut] = useState(false);
+  const [onlineUserIds, setOnlineUserIds] = useState(new Set());
   const [loginConfirmOpen, setLoginConfirmOpen] = useState(false);
   const loginConfirmResolveRef = useRef(null);
   const [forgotOpen, setForgotOpen] = useState(false);
@@ -1029,6 +1030,16 @@ export default function App() {
           const payload = JSON.parse(evt.data);
           const type = payload?.type;
 
+          if (type === "presence") {
+            setOnlineUserIds((prev) => {
+              const next = new Set(prev);
+              if (payload.online) next.add(Number(payload.user_id));
+              else next.delete(Number(payload.user_id));
+              return next;
+            });
+            return;
+          }
+
           if (type === "session_replaced") {
             destroyed = true;
             sessionStorage.removeItem("fm_token");
@@ -1123,6 +1134,20 @@ export default function App() {
       // ignore
     }
   }
+
+  useEffect(() => {
+    if (!token || !me) return;
+    let cancelled = false;
+    async function fetchOnline() {
+      try {
+        const data = await api("/users/online", { token });
+        if (!cancelled) setOnlineUserIds(new Set((data.online_ids || []).map(Number)));
+      } catch { /* ignore */ }
+    }
+    fetchOnline();
+    const t = setInterval(fetchOnline, 30000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [token, me]);
 
   function sendTyping(isTyping) {
     const ws = wsRef.current;
@@ -2570,9 +2595,19 @@ export default function App() {
                   <Avatar name={otherUser?.display_name || selectedConversation.other_username} avatar_url={otherUser?.avatar_url || null} size={38} />
                 </button>
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 850, fontSize: 14, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {otherUser?.display_name || selectedConversation.other_username}
-                  </div>
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => openOtherUserProfile(selectedConversation.other_username)}
+                    style={{ border: "none", background: "transparent", padding: 0, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}
+                  >
+                    <span style={{ fontWeight: 850, fontSize: 14, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: "var(--text)" }}>
+                      {otherUser?.display_name || selectedConversation.other_username}
+                    </span>
+                    {otherUser && onlineUserIds.has(Number(otherUser.id)) && (
+                      <span style={{ width: 8, height: 8, borderRadius: "50%", background: "rgba(64,220,120,0.95)", border: "1px solid rgba(255,255,255,0.22)", flexShrink: 0, display: "inline-block" }} title="Online" />
+                    )}
+                  </button>
                   <div style={{ fontSize: 12, color: "var(--muted)" }}>
                     {Object.entries(typingByUserId).some(([uid, v]) => v && String(uid) !== String(me.id))
                       ? "Typing…"
@@ -2604,7 +2639,12 @@ export default function App() {
                 <Avatar name={selectedConversation?.other_username || me.username} avatar_url={otherUser?.avatar_url || null} size={34} />
               </button>
               <div style={{ minWidth: 0 }}>
-                <div className="name">{otherUser?.display_name || selectedConversation?.other_username || "Select a chat"}</div>
+                <div className="name" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  {otherUser?.display_name || selectedConversation?.other_username || "Select a chat"}
+                  {otherUser && onlineUserIds.has(Number(otherUser.id)) && (
+                    <span style={{ width: 8, height: 8, borderRadius: "50%", background: "rgba(64,220,120,0.95)", border: "1px solid rgba(255,255,255,0.22)", flexShrink: 0, display: "inline-block" }} title="Online" />
+                  )}
+                </div>
                 <div style={{ color: "var(--muted)", fontSize: 12 }}>
                   {selectedConversation
                     ? Object.entries(typingByUserId).some(([uid, v]) => v && String(uid) !== String(me.id))
