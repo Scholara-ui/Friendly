@@ -742,7 +742,7 @@ export default function App() {
     };
   }, [token]);
 
-  // Load all users for new-chat dropdown
+  // Load all users for new-chat dropdown — refresh every 60s so profile changes propagate
   useEffect(() => {
     if (!token || !me) return;
     let cancelled = false;
@@ -756,8 +756,10 @@ export default function App() {
       }
     }
     loadUsers();
+    const t = setInterval(loadUsers, 60000);
     return () => {
       cancelled = true;
+      clearInterval(t);
     };
   }, [token, me]);
 
@@ -1547,6 +1549,11 @@ export default function App() {
 
       setMe(updated);
       setProfileOpen(false);
+      // Refresh user list so the updated name/avatar shows for everyone immediately
+      try {
+        const users = await api("/users?limit=500", { token });
+        setAllUsers(Array.isArray(users) ? users : []);
+      } catch { /* ignore */ }
     } catch (err) {
       setProfileError(err.message || "Failed to save profile");
     } finally {
