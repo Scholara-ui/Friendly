@@ -2556,33 +2556,33 @@ export default function App() {
         )}
 
         <div className="fm-chatpanel" style={{ flex: "1 1 auto", minWidth: 0 }}>
-          {/* Profile / presence strip */}
-          <div style={{ padding: 10, borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <Avatar name={me.display_name || me.username} avatar_url={me.avatar_url} size={30} />
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
-                  {me.display_name || me.username}
-                  <span
-                    aria-label={token ? "Online" : "Offline"}
-                    title={token ? "Online" : "Offline"}
-                    style={{
-                      width: 8,
-                      height: 8,
-                      borderRadius: 999,
-                      display: "inline-block",
-                      border: "1px solid rgba(255,255,255,0.22)",
-                      background: token ? "rgba(64, 220, 120, 0.95)" : "rgba(148,148,148,0.95)",
-                    }}
-                  />
-                </div>
-                {me.last_active_at ? (
-                  <div style={{ fontSize: 11, color: "var(--muted)" }}>
-                    Active at {formatTime(me.last_active_at)}
+          {/* Chat partner header – desktop only (mobile uses fm-topbar) */}
+          <div className="fm-desktop-only" style={{ padding: "10px 14px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: 12 }}>
+            {selectedConversation ? (
+              <>
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => openOtherUserProfile(selectedConversation.other_username)}
+                  style={{ border: "none", background: "transparent", padding: 0, cursor: "pointer", flexShrink: 0 }}
+                  aria-label="View profile"
+                >
+                  <Avatar name={otherUser?.display_name || selectedConversation.other_username} avatar_url={otherUser?.avatar_url || null} size={38} />
+                </button>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 850, fontSize: 14, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {otherUser?.display_name || selectedConversation.other_username}
                   </div>
-                ) : null}
-              </div>
-            </div>
+                  <div style={{ fontSize: 12, color: "var(--muted)" }}>
+                    {Object.entries(typingByUserId).some(([uid, v]) => v && String(uid) !== String(me.id))
+                      ? "Typing…"
+                      : `@${selectedConversation.other_username}`}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div style={{ color: "var(--muted)", fontSize: 13 }}>Select a conversation</div>
+            )}
           </div>
 
           <div className="fm-topbar">
@@ -2604,9 +2604,13 @@ export default function App() {
                 <Avatar name={selectedConversation?.other_username || me.username} avatar_url={otherUser?.avatar_url || null} size={34} />
               </button>
               <div style={{ minWidth: 0 }}>
-                <div className="name">{selectedConversation?.other_username || "Select a chat"}</div>
+                <div className="name">{otherUser?.display_name || selectedConversation?.other_username || "Select a chat"}</div>
                 <div style={{ color: "var(--muted)", fontSize: 12 }}>
-                  {selectedConversation ? "Chat" : "Open chats to select"}
+                  {selectedConversation
+                    ? Object.entries(typingByUserId).some(([uid, v]) => v && String(uid) !== String(me.id))
+                      ? "Typing…"
+                      : `@${selectedConversation.other_username}`
+                    : "Open chats to select"}
                 </div>
               </div>
             </div>
@@ -2614,36 +2618,6 @@ export default function App() {
             <button className="fm-topbar-btn" onClick={logout} aria-label="Log out">
               ⎋
             </button>
-          </div>
-
-          <div style={styles.chatTop}>
-            {selectedConversation ? (
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <button
-                  type="button"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => {
-                    openOtherUserProfile(selectedConversation.other_username);
-                  }}
-                  style={{ border: "none", background: "transparent", padding: 0, cursor: "pointer" }}
-                  aria-label="Open user profile"
-                >
-                  <Avatar name={selectedConversation.other_username} avatar_url={otherUser?.avatar_url || null} size={36} />
-                </button>
-                <div>
-                  <div style={{ fontWeight: 850, fontSize: 14 }}>{selectedConversation.other_username}</div>
-                  <div style={{ color: "var(--muted)", fontSize: 12 }}>
-                    {(() => {
-                      const otherTyping = Object.entries(typingByUserId).some(([uid, v]) => v && String(uid) !== String(me.id));
-                      if (otherTyping) return "Typing…";
-                      return "Messages update automatically";
-                    })()}
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div style={{ color: "var(--muted)" }}>Select a conversation</div>
-            )}
           </div>
 
           <div ref={listRef} onScroll={onScrollMessages} style={styles.messages}>
