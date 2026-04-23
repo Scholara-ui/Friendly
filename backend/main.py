@@ -1507,6 +1507,54 @@ def get_conversation_states(
     return ConversationStatesOut(read=read, delivered=delivered)
 
 
+@app.get("/ai/health")
+def ai_health(
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+):
+    """Diagnostic endpoint that exercises the Gemini API with a trivial prompt
+    and returns a structured, non-sensitive status report.
+
+    Requires auth so it can't be abused by anonymous callers.
+    """
+    _ = get_current_user(token, db)
+
+    status: dict = {
+        "configured": bool(settings.gemini_api_key and _gemini_client is not None),
+        "model": settings.gemini_model,
+        "key_suffix": (settings.gemini_api_key[-4:] if settings.gemini_api_key else None),
+    }
+
+    if not status["configured"]:
+        status["ok"] = False
+        status["error"] = "GEMINI_API_KEY not set on server"
+        return status
+
+    try:
+        response = _gemini_client.models.generate_content(
+            model=settings.gemini_model,
+            contents="ping",
+            config=GenerateContentConfig(temperature=0.0),
+        )
+        text = (response.text or "").strip()
+        status["ok"] = True
+        status["sample"] = text[:80]
+    except Exception as exc:  # noqa: BLE001
+        msg = str(exc)
+        status["ok"] = False
+        status["error_class"] = exc.__class__.__name__
+        status["error"] = msg[:400]
+        if "429" in msg or "RESOURCE_EXHAUSTED" in msg:
+            status["likely_cause"] = "Quota exceeded or billing not active for this API key's project"
+        elif "403" in msg or "PERMISSION_DENIED" in msg:
+            status["likely_cause"] = "API key lacks access to this model, or Generative Language API not enabled"
+        elif "401" in msg or "UNAUTHENTICATED" in msg:
+            status["likely_cause"] = "API key invalid or revoked"
+        elif "404" in msg or "NOT_FOUND" in msg:
+            status["likely_cause"] = f"Model '{settings.gemini_model}' not available to this key"
+    return status
+
+
 @app.post("/ai/polish", response_model=AiPolishResponse)
 def ai_polish(
     payload: AiPolishRequest,
