@@ -162,6 +162,69 @@ _gemini_client: genai.Client | None = None
 if settings.gemini_api_key:
     _gemini_client = genai.Client(api_key=settings.gemini_api_key)
 
+# --- AI rate limiting (per user, per minute) to prevent bursts that trip
+# Gemini's free-tier RPM quota (15 requests/min on gemini-2.5-flash).
+AI_USER_RPM_LIMIT = 5  # max AI calls per user per minute
+_ai_user_calls: Dict[int, List[float]] = defaultdict(list)
+
+
+def check_ai_user_rate_limit(user_id: int) -> None:
+    now = time.monotonic()
+    cutoff = now - 60
+    calls = _ai_user_calls[user_id]
+    while calls and calls[0] < cutoff:
+        calls.pop(0)
+    if len(calls) >= AI_USER_RPM_LIMIT:
+        raise HTTPException(
+            status_code=429,
+            detail="You're using the AI too quickly. Please wait a moment and try again.",
+        )
+    calls.append(now)
+
+
+def call_gemini_with_retry(
+    prompt: str,
+    *,
+    temperature: float,
+    max_retries: int = 3,
+) -> str:
+    """Call Gemini with exponential backoff on 429/503 errors.
+
+    Returns the text response (may be empty string). Raises the original
+    exception if all retries fail.
+    """
+    last_exc: Exception | None = None
+    for attempt in range(max_retries):
+        try:
+            response = _gemini_client.models.generate_content(
+                model=settings.gemini_model,
+                contents=prompt,
+                config=GenerateContentConfig(temperature=temperature),
+            )
+            return (response.text or "").strip()
+        except Exception as exc:  # noqa: BLE001 - external SDK raises varied types
+            last_exc = exc
+            msg = str(exc)
+            is_retryable = (
+                "429" in msg
+                or "RESOURCE_EXHAUSTED" in msg
+                or "503" in msg
+                or "UNAVAILABLE" in msg
+            )
+            if not is_retryable or attempt >= max_retries - 1:
+                raise
+            wait_s = (2 ** attempt) + 1  # 2s, 5s, 9s
+            logger.warning(
+                "Gemini call failed (attempt %d/%d), retrying in %ds: %s",
+                attempt + 1, max_retries, wait_s, msg[:200],
+            )
+            time.sleep(wait_s)
+    # Unreachable: loop either returns or raises
+    if last_exc:
+        raise last_exc
+    return ""
+
+
 USERNAME_BLANK_DETAIL = "Username cannot be blank"
 
 app.add_middleware(
@@ -1453,7 +1516,8 @@ def ai_polish(
     if not settings.gemini_api_key or _gemini_client is None:
         raise HTTPException(status_code=503, detail="AI not configured on server")
 
-    _ = get_current_user(token, db)
+    me_user = get_current_user(token, db)
+    check_ai_user_rate_limit(me_user.id)
 
     mode = (payload.mode or "polish").lower()
     if mode not in {"polish", "autocorrect"}:
@@ -1473,16 +1537,16 @@ def ai_polish(
     prompt = f"{system_msg}\n\nText:\n{payload.text}"
 
     try:
-        response = _gemini_client.models.generate_content(
-            model=settings.gemini_model,
-            contents=prompt,
-            config=GenerateContentConfig(temperature=0.25),
-        )
-        text = (response.text or "").strip()
+        text = call_gemini_with_retry(prompt, temperature=0.25)
     except Exception as exc:  # pragma: no cover - external service
-        logger.exception("Gemini /ai/polish failed")
-        # Don't leak secrets, but do send a helpful (non-sensitive) reason to the client.
-        detail = f"{exc.__class__.__name__}: {str(exc)}"
+        logger.exception("Gemini /ai/polish failed after retries")
+        msg = str(exc)
+        if "429" in msg or "RESOURCE_EXHAUSTED" in msg:
+            raise HTTPException(
+                status_code=429,
+                detail="AI is temporarily rate-limited. Please try again in a minute.",
+            ) from exc
+        detail = f"{exc.__class__.__name__}: {msg}"
         raise HTTPException(status_code=502, detail=f"AI service error: {detail[:300]}") from exc
 
     if not text:
@@ -1501,6 +1565,7 @@ def ai_suggestions(
         raise HTTPException(status_code=503, detail="AI not configured on server")
 
     me_user = get_current_user(token, db)
+    check_ai_user_rate_limit(me_user.id)
     require_member(db, me_user.id, payload.conversation_id)
 
     sender = aliased(User)
@@ -1539,15 +1604,16 @@ def ai_suggestions(
     gemini_prompt = f"You are helping a user reply in a chat app.\n\n{prompt}"
 
     try:
-        response = _gemini_client.models.generate_content(
-            model=settings.gemini_model,
-            contents=gemini_prompt,
-            config=GenerateContentConfig(temperature=0.7),
-        )
-        raw = (response.text or "").strip()
+        raw = call_gemini_with_retry(gemini_prompt, temperature=0.7)
     except Exception as exc:  # pragma: no cover - external service
-        logger.exception("Gemini /ai/suggestions failed")
-        detail = f"{exc.__class__.__name__}: {str(exc)}"
+        logger.exception("Gemini /ai/suggestions failed after retries")
+        msg = str(exc)
+        if "429" in msg or "RESOURCE_EXHAUSTED" in msg:
+            raise HTTPException(
+                status_code=429,
+                detail="AI is temporarily rate-limited. Please try again in a minute.",
+            ) from exc
+        detail = f"{exc.__class__.__name__}: {msg}"
         raise HTTPException(status_code=502, detail=f"AI service error: {detail[:300]}") from exc
 
     lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]

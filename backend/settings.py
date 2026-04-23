@@ -22,9 +22,10 @@ class Settings:
             # Users sometimes paste keys with surrounding quotes; strip them.
             raw_key = raw_key.strip().strip('"').strip("'")
         self.gemini_api_key: str | None = raw_key or None
-        # Use a modern Flash model that is available on Gemini's free tier.
+        # Use Gemini 2.0 Flash - higher free-tier limits than 2.5 Flash
+        # (15 RPM / 1M TPM / 1,500 RPD vs 2.5's tighter caps).
         # You can override as needed with GEMINI_MODEL env var.
-        self.gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        self.gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 
         # Database
         _db_url = os.getenv("DATABASE_URL", "sqlite:///./messenger.db")
