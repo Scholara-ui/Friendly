@@ -12,7 +12,7 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, nullable=False, unique=True, index=True)
     email = Column(String, nullable=True, unique=True, index=True)
-    password_hash = Column(String, nullable=False)
+    password_hash = Column(String, nullable=True)  # nullable for Google-only users
     display_name = Column(String, nullable=True)
     avatar_url = Column(String, nullable=True)
     status_image_url = Column(String, nullable=True)
@@ -20,6 +20,10 @@ class User(Base):
     status_expires_at = Column(DateTime, nullable=True)
     last_active_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     token_version = Column(Integer, default=1, nullable=False)
+    # Google sign-in fields
+    google_id = Column(String, nullable=True, unique=True, index=True)
+    email_verified = Column(Boolean, default=False, nullable=False)
+    auth_provider = Column(String, default="password", nullable=False)  # 'password' | 'google' | 'both'
 
 
 class Conversation(Base):

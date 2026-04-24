@@ -114,6 +114,10 @@ class MessageOut(BaseModel):
     deleted_at: datetime | None = None
 
 
+class GoogleLoginRequest(BaseModel):
+    id_token: str = Field(min_length=10, max_length=4000)
+
+
 class AiPolishRequest(BaseModel):
     text: str = Field(min_length=1, max_length=2000)
     mode: str = Field(

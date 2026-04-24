@@ -33,6 +33,9 @@ class Settings:
             _db_url = "postgresql://" + _db_url[len("postgres://"):]
         self.database_url: str = _db_url
 
+        # Google OAuth (Sign in with Google via Google Identity Services)
+        self.google_client_id: str | None = (os.getenv("GOOGLE_CLIENT_ID") or "").strip() or None
+
         # Email (Resend) + frontend URL used to build reset links
         self.resend_api_key: str | None = (os.getenv("RESEND_API_KEY") or "").strip() or None
         self.from_email: str = os.getenv("FROM_EMAIL", "onboarding@resend.dev").strip()

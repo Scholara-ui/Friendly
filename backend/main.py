@@ -41,6 +41,7 @@ from schemas import (
     MeResponse,
     RegisterRequest,
     ForgotPasswordRequest,
+    GoogleLoginRequest,
     ResetPasswordRequest,
     TokenResponse,
     MessageCreateRequest,
@@ -239,6 +240,7 @@ app.add_middleware(
 RATE_LIMITS: Dict[str, Tuple[int, int]] = {
     "/auth/login": (10, 60),
     "/auth/register": (5, 300),
+    "/auth/google": (10, 60),
     "/conversations": (30, 60),
 }
 _requests: Dict[Tuple[str, str], List[float]] = defaultdict(list)
@@ -329,6 +331,13 @@ def ensure_sqlite_schema() -> None:
             conn.execute(text("ALTER TABLE users ADD COLUMN status_expires_at DATETIME"))
         if "last_active_at" not in user_cols:
             conn.execute(text("ALTER TABLE users ADD COLUMN last_active_at DATETIME"))
+        if "google_id" not in user_cols:
+            conn.execute(text("ALTER TABLE users ADD COLUMN google_id TEXT"))
+            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_users_google_id ON users(google_id) WHERE google_id IS NOT NULL"))
+        if "email_verified" not in user_cols:
+            conn.execute(text("ALTER TABLE users ADD COLUMN email_verified BOOLEAN NOT NULL DEFAULT 0"))
+        if "auth_provider" not in user_cols:
+            conn.execute(text("ALTER TABLE users ADD COLUMN auth_provider TEXT NOT NULL DEFAULT 'password'"))
 
         conn.commit()
 
@@ -346,6 +355,15 @@ try:
         with engine.connect() as conn:
             try:
                 conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 1"))
+                conn.commit()
+            except Exception:
+                conn.rollback()
+        with engine.connect() as conn:
+            try:
+                conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id VARCHAR UNIQUE"))
+                conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE"))
+                conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_provider VARCHAR NOT NULL DEFAULT 'password'"))
+                conn.execute(text("ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL"))
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -573,6 +591,14 @@ def health():
     return {"status": "ok"}
 
 
+@app.get("/config/public")
+def public_config():
+    """Public runtime config for the frontend (no secrets)."""
+    return {
+        "google_client_id": settings.google_client_id or "",
+    }
+
+
 @app.post("/auth/register", response_model=TokenResponse)
 def register(payload: RegisterRequest, request: Request, db: Session = Depends(get_db)):
     client_ip = request.client.host if request.client else "unknown"
@@ -604,6 +630,10 @@ def register(payload: RegisterRequest, request: Request, db: Session = Depends(g
 def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db)):
     email = payload.email.strip().lower()
     u = db.query(User).filter(func.lower(User.email) == email).first()
+    # Silently skip Google-only users — they should use Google sign-in.
+    # Response stays generic to avoid leaking account existence.
+    if u and not u.password_hash:
+        u = None
     if u:
         db.query(PasswordResetToken).filter(
             PasswordResetToken.user_id == u.id,
@@ -658,6 +688,11 @@ async def login(payload: LoginRequest, request: Request, db: Session = Depends(g
     username = require_non_blank_username(payload.username)
 
     u = db.query(User).filter(User.username == username).first()
+    if u and not u.password_hash:
+        raise HTTPException(
+            status_code=401,
+            detail="This account uses Google sign-in. Please sign in with Google.",
+        )
     if not u or not verify_password(payload.password, u.password_hash):
         raise HTTPException(status_code=401, detail="Invalid username or password")
 
@@ -680,6 +715,91 @@ async def login_form(
     if not u or not verify_password(form_data.password, u.password_hash):
         raise HTTPException(status_code=401, detail="Invalid username or password")
 
+    u.token_version = int(getattr(u, "token_version", 0) or 0) + 1
+    db.commit()
+    db.refresh(u)
+    asyncio.create_task(ws_manager.kick_user(u.id))
+    token = create_access_token(user_id=u.id, username=u.username, token_version=u.token_version)
+    return TokenResponse(access_token=token)
+
+
+@app.post("/auth/google", response_model=TokenResponse)
+async def login_with_google(
+    payload: GoogleLoginRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    client_ip = request.client.host if request.client else "unknown"
+    rate_limit(client_ip, "/auth/google")
+
+    if not settings.google_client_id:
+        raise HTTPException(status_code=503, detail="Google sign-in not configured on server")
+
+    # Import lazily so the server still starts if google-auth isn't installed yet.
+    try:
+        from google.oauth2 import id_token as google_id_token
+        from google.auth.transport import requests as google_requests
+    except ImportError:
+        raise HTTPException(status_code=503, detail="Google auth library not installed on server")
+
+    # Verify the ID token. This checks signature, audience (our client id),
+    # expiration, and issuer automatically.
+    try:
+        idinfo = google_id_token.verify_oauth2_token(
+            payload.id_token,
+            google_requests.Request(),
+            settings.google_client_id,
+        )
+    except ValueError as exc:
+        logger.warning("Google ID token verification failed: %s", exc)
+        raise HTTPException(status_code=401, detail="Invalid Google sign-in token")
+
+    google_sub = idinfo.get("sub")
+    email = (idinfo.get("email") or "").strip().lower()
+    email_verified = bool(idinfo.get("email_verified"))
+    name = idinfo.get("name") or None
+
+    if not google_sub or not email:
+        raise HTTPException(status_code=401, detail="Google token missing required claims")
+
+    if not email_verified:
+        raise HTTPException(
+            status_code=403,
+            detail="Your Google email is not verified. Please verify it before signing in.",
+        )
+
+    # Resolution order:
+    # 1) Existing user by google_id -> login
+    # 2) Existing user by email -> link (set google_id, auth_provider='both')
+    # 3) New user -> create (no password, auth_provider='google')
+    u = db.query(User).filter(User.google_id == google_sub).first()
+    if not u:
+        u = db.query(User).filter(func.lower(User.email) == email).first()
+        if u:
+            # Link the existing email/password account with this Google identity
+            u.google_id = google_sub
+            u.email_verified = True
+            existing_provider = getattr(u, "auth_provider", "password") or "password"
+            if existing_provider == "password":
+                u.auth_provider = "both"
+            elif existing_provider == "google":
+                u.auth_provider = "google"
+            # else already 'both' — leave it
+        else:
+            # Brand new user
+            username = _generate_username_from_email(email, db)
+            u = User(
+                username=username,
+                email=email,
+                password_hash=None,
+                display_name=name or username,
+                google_id=google_sub,
+                email_verified=True,
+                auth_provider="google",
+            )
+            db.add(u)
+
+    # Bump token_version to invalidate other sessions (same behavior as password login)
     u.token_version = int(getattr(u, "token_version", 0) or 0) + 1
     db.commit()
     db.refresh(u)

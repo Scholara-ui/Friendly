@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState, memo } from "react";
 import logo from "./assets/logo.png";
 import friendlyBanner from "./assets/friendly-banner.png";
 import friendlyChatGhost from "./assets/friendly-chat-ghost.png";
+import GoogleSignInButton from "./GoogleSignInButton";
 
 const API_BASE = (
   import.meta.env.VITE_API_BASE ||
@@ -531,6 +532,9 @@ export default function App() {
   const [resetConfirmPass, setResetConfirmPass] = useState("");
   const [resetMsg, setResetMsg] = useState("");
   const [resetBusy, setResetBusy] = useState(false);
+  const [googleClientId, setGoogleClientId] = useState(
+    () => import.meta.env.VITE_GOOGLE_CLIENT_ID || ""
+  );
 
   const [conversations, setConversations] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
@@ -719,6 +723,28 @@ export default function App() {
       };
     });
   }
+
+  // Fetch public config (Google client id) from backend as a fallback if
+  // VITE_GOOGLE_CLIENT_ID isn't set at build time.
+  useEffect(() => {
+    if (googleClientId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/config/public`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled && data?.google_client_id) {
+          setGoogleClientId(data.google_client_id);
+        }
+      } catch {
+        // ignore — Google sign-in simply won't render
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [googleClientId]);
 
   // AUTH: load me
   useEffect(() => {
@@ -1947,6 +1973,38 @@ export default function App() {
               <button style={styles.primaryBtn} type="submit">
                 {authMode === "login" ? "Log in" : "Create account"}
               </button>
+            ) : null}
+
+            {authMode !== "terms" && googleClientId ? (
+              <>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    margin: "14px 0 10px",
+                    color: "rgba(255,255,255,0.45)",
+                    fontSize: 11,
+                    letterSpacing: 1,
+                  }}
+                >
+                  <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.12)" }} />
+                  <span>OR</span>
+                  <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.12)" }} />
+                </div>
+                <GoogleSignInButton
+                  clientId={googleClientId}
+                  apiBase={API_BASE}
+                  text={authMode === "register" ? "signup_with" : "signin_with"}
+                  onSuccess={(accessToken) => {
+                    sessionStorage.setItem(LS_TOKEN, accessToken);
+                    setToken(accessToken);
+                    setAuthPass("");
+                    setAuthError("");
+                  }}
+                  onError={(msg) => setAuthError(msg)}
+                />
+              </>
             ) : null}
 
             {authMode !== "terms" ? (
