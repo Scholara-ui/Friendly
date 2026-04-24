@@ -1835,9 +1835,9 @@ export default function App() {
           }}
         />
         <div style={styles.authCard}>
-          <div style={{ display: "flex", alignItems: "center", gap: 1, marginBottom: 6 }}>
-            <img src={logo} alt="Friendly" style={{ height: 54, width: "auto" }} />
-            <div style={{ lineHeight: 1.05 }}>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, marginBottom: 16 }}>
+            <img src={logo} alt="Friendly" style={{ height: 52, width: "auto" }} />
+            <div style={{ lineHeight: 1.05, textAlign: "center" }}>
               <div style={{ fontWeight: 950, fontSize: 20, letterSpacing: -0.7, position: "relative", display: "inline-block" }}>
                 <span
                   style={{
@@ -1893,6 +1893,38 @@ export default function App() {
           </div>
 
           <form onSubmit={handleAuthSubmit}>
+            {authMode !== "terms" && googleClientId ? (
+              <>
+                <GoogleSignInButton
+                  clientId={googleClientId}
+                  apiBase={API_BASE}
+                  text={authMode === "register" ? "signup_with" : "signin_with"}
+                  onSuccess={(accessToken) => {
+                    sessionStorage.setItem(LS_TOKEN, accessToken);
+                    setToken(accessToken);
+                    setAuthPass("");
+                    setAuthError("");
+                  }}
+                  onError={(msg) => setAuthError(msg)}
+                />
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    margin: "14px 0 6px",
+                    color: "rgba(255,255,255,0.3)",
+                    fontSize: 11,
+                    letterSpacing: 0.5,
+                    textTransform: "uppercase",
+                  }}
+                >
+                  <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.09)" }} />
+                  <span>or continue with email</span>
+                  <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.09)" }} />
+                </div>
+              </>
+            ) : null}
             {authMode === "terms" ? (
               <div style={{ marginTop: 6, border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, padding: 10, background: "rgba(0,0,0,0.18)", fontSize: 11, color: "var(--muted)", lineHeight: 1.45 }}>
                 <div style={{ fontSize: 13, fontWeight: 850, color: "rgba(255,255,255,0.9)", marginBottom: 8 }}>Terms & Conditions</div>
@@ -1975,37 +2007,6 @@ export default function App() {
               </button>
             ) : null}
 
-            {authMode !== "terms" && googleClientId ? (
-              <>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 10,
-                    margin: "14px 0 10px",
-                    color: "rgba(255,255,255,0.45)",
-                    fontSize: 11,
-                    letterSpacing: 1,
-                  }}
-                >
-                  <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.12)" }} />
-                  <span>OR</span>
-                  <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.12)" }} />
-                </div>
-                <GoogleSignInButton
-                  clientId={googleClientId}
-                  apiBase={API_BASE}
-                  text={authMode === "register" ? "signup_with" : "signin_with"}
-                  onSuccess={(accessToken) => {
-                    sessionStorage.setItem(LS_TOKEN, accessToken);
-                    setToken(accessToken);
-                    setAuthPass("");
-                    setAuthError("");
-                  }}
-                  onError={(msg) => setAuthError(msg)}
-                />
-              </>
-            ) : null}
 
             {authMode !== "terms" ? (
               <label style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "rgba(255,255,255,0.85)" }}>
@@ -3240,33 +3241,36 @@ const styles = {
     width: "min(420px, 92vw)",
     background: "var(--panel)",
     border: "1px solid var(--border)",
-    borderRadius: 18,
-    padding: "8px 18px 18px",
+    borderRadius: 20,
+    padding: "22px 24px 24px",
     boxShadow: "var(--shadow)",
-    backdropFilter: "blur(10px)",
+    backdropFilter: "blur(18px)",
   },
   tabs: {
     display: "flex",
-    gap: 8,
-    background: "var(--panel2)",
-    border: "1px solid var(--border)",
-    borderRadius: 12,
-    padding: 6,
-    marginBottom: 8,
+    background: "rgba(255,255,255,0.05)",
+    borderRadius: 14,
+    padding: 4,
+    marginBottom: 18,
+    gap: 2,
   },
   tab: {
     flex: 1,
     border: "none",
     background: "transparent",
-    color: "var(--text)",
-    padding: "10px 12px",
+    color: "rgba(255,255,255,0.5)",
+    padding: "9px 12px",
     borderRadius: 10,
     cursor: "pointer",
-    fontWeight: 750,
+    fontWeight: 600,
+    fontSize: 13,
+    letterSpacing: 0.1,
   },
   tabActive: {
-    background: "var(--brand2)",
-    border: "1px solid rgba(79, 124, 255, 0.35)",
+    background: "rgba(255,255,255,0.11)",
+    color: "rgba(255,255,255,0.95)",
+    border: "1px solid rgba(255,255,255,0.1)",
+    fontWeight: 700,
   },
   label: {
     display: "block",
@@ -3304,15 +3308,17 @@ const styles = {
     cursor: "pointer",
   },
   primaryBtn: {
-    marginTop: 14,
+    marginTop: 12,
     width: "100%",
     border: "none",
     borderRadius: 12,
     padding: "12px 12px",
-    background: "linear-gradient(180deg, rgba(79,124,255,0.95), rgba(79,124,255,0.75))",
+    background: "linear-gradient(180deg, rgba(79,124,255,1), rgba(55,95,220,1))",
     color: "white",
-    fontWeight: 850,
+    fontWeight: 700,
+    fontSize: 14,
     cursor: "pointer",
+    letterSpacing: 0.1,
   },
   smallBtn: {
     border: "1px solid rgba(255,255,255,0.14)",
