@@ -1,17 +1,5 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef } from "react";
 
-/**
- * Renders Google's official "Sign in with Google" button using Google Identity
- * Services (GIS). When a user signs in, Google returns a signed ID token
- * (JWT) which we forward to the backend at POST /auth/google for verification.
- *
- * Props:
- *   - clientId:   Google OAuth 2.0 Client ID (Web application)
- *   - apiBase:    Backend base URL (e.g. https://api.example.com)
- *   - onSuccess:  (accessToken: string) => void  — called with our JWT
- *   - onError:    (message: string) => void
- *   - text:       "signin_with" | "signup_with" | "continue_with"
- */
 export default function GoogleSignInButton({
   clientId,
   apiBase,
@@ -20,10 +8,9 @@ export default function GoogleSignInButton({
   text = "continue_with",
 }) {
   const containerRef = useRef(null);
-  const [initialized, setInitialized] = useState(false);
 
   useEffect(() => {
-    if (!clientId) return;
+    if (!clientId || !containerRef.current) return;
 
     let cancelled = false;
 
@@ -31,7 +18,6 @@ export default function GoogleSignInButton({
       if (cancelled) return;
       const google = window.google;
       if (!google?.accounts?.id) {
-        // GIS script not ready yet; retry shortly
         window.setTimeout(initialize, 120);
         return;
       }
@@ -50,8 +36,8 @@ export default function GoogleSignInButton({
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ id_token: response.credential }),
               });
-              const text = await res.text();
-              const data = text ? JSON.parse(text) : null;
+              const raw = await res.text();
+              const data = raw ? JSON.parse(raw) : null;
               if (!res.ok) {
                 const msg = data?.detail || `HTTP ${res.status}`;
                 throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
@@ -66,19 +52,15 @@ export default function GoogleSignInButton({
           use_fedcm_for_prompt: true,
         });
 
-        if (containerRef.current) {
-          containerRef.current.innerHTML = "";
-          google.accounts.id.renderButton(containerRef.current, {
-            type: "standard",
-            theme: "filled_black",
-            size: "large",
-            text,
-            shape: "pill",
-            logo_alignment: "center",
-            width: Math.min(containerRef.current.clientWidth || 320, 360),
-          });
-        }
-        setInitialized(true);
+        google.accounts.id.renderButton(containerRef.current, {
+          type: "standard",
+          theme: "filled_black",
+          size: "large",
+          text,
+          shape: "pill",
+          logo_alignment: "center",
+          width: 320,
+        });
       } catch (err) {
         onError?.(err?.message || "Failed to initialize Google sign-in.");
       }
@@ -88,21 +70,13 @@ export default function GoogleSignInButton({
     return () => {
       cancelled = true;
     };
-  }, [clientId, apiBase, onSuccess, onError, text]);
+  }, [clientId]);
 
-  if (!clientId) {
-    return null; // Feature not configured; render nothing
-  }
+  if (!clientId) return null;
 
   return (
     <div style={{ display: "flex", justifyContent: "center", width: "100%" }}>
-      <div ref={containerRef} style={{ minHeight: 44 }}>
-        {!initialized ? (
-          <div style={{ color: "rgba(255,255,255,0.5)", fontSize: 12 }}>
-            Loading Google sign-in…
-          </div>
-        ) : null}
-      </div>
+      <div ref={containerRef} style={{ minHeight: 44 }} />
     </div>
   );
 }
