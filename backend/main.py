@@ -772,6 +772,8 @@ async def login_with_google(
     # 1) Existing user by google_id -> login
     # 2) Existing user by email -> link (set google_id, auth_provider='both')
     # 3) New user -> create (no password, auth_provider='google')
+    intent = (payload.intent or "login").strip().lower()
+
     u = db.query(User).filter(User.google_id == google_sub).first()
     if not u:
         u = db.query(User).filter(func.lower(User.email) == email).first()
@@ -786,6 +788,13 @@ async def login_with_google(
                 u.auth_provider = "google"
             # else already 'both' — leave it
         else:
+            # No account exists for this Google identity.
+            # Only auto-create when the user explicitly chose the sign-up flow.
+            if intent != "register":
+                raise HTTPException(
+                    status_code=404,
+                    detail="No account found for this Google email. Please create an account first.",
+                )
             # Brand new user
             username = _generate_username_from_email(email, db)
             u = User(

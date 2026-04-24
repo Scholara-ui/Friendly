@@ -6,6 +6,7 @@ export default function GoogleSignInButton({
   onSuccess,
   onError,
   text = "continue_with",
+  intent = "login",
 }) {
   const containerRef = useRef(null);
 
@@ -34,17 +35,19 @@ export default function GoogleSignInButton({
               const res = await fetch(`${apiBase}/auth/google`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ id_token: response.credential }),
+                body: JSON.stringify({ id_token: response.credential, intent }),
               });
               const raw = await res.text();
               const data = raw ? JSON.parse(raw) : null;
               if (!res.ok) {
                 const msg = data?.detail || `HTTP ${res.status}`;
-                throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
+                const err = new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
+                err.status = res.status;
+                throw err;
               }
               onSuccess?.(data.access_token);
             } catch (err) {
-              onError?.(err?.message || "Google sign-in failed.");
+              onError?.(err?.message || "Google sign-in failed.", err?.status);
             }
           },
           auto_select: false,
@@ -70,7 +73,7 @@ export default function GoogleSignInButton({
     return () => {
       cancelled = true;
     };
-  }, [clientId]);
+  }, [clientId, intent]);
 
   if (!clientId) return null;
 

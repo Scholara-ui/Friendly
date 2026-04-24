@@ -1899,13 +1899,21 @@ export default function App() {
                   clientId={googleClientId}
                   apiBase={API_BASE}
                   text={authMode === "register" ? "signup_with" : "signin_with"}
+                  intent={authMode === "register" ? "register" : "login"}
                   onSuccess={(accessToken) => {
                     sessionStorage.setItem(LS_TOKEN, accessToken);
                     setToken(accessToken);
                     setAuthPass("");
                     setAuthError("");
                   }}
-                  onError={(msg) => setAuthError(msg)}
+                  onError={(msg, status) => {
+                    if (status === 404 && authMode === "login") {
+                      setAuthMode("register");
+                      setAuthError("No account found for that Google email — create one below.");
+                    } else {
+                      setAuthError(msg);
+                    }
+                  }}
                 />
                 <div
                   style={{

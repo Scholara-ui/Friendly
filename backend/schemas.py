@@ -116,6 +116,7 @@ class MessageOut(BaseModel):
 
 class GoogleLoginRequest(BaseModel):
     id_token: str = Field(min_length=10, max_length=4000)
+    intent: str = Field(default="login", description="login | register")
 
 
 class AiPolishRequest(BaseModel):
