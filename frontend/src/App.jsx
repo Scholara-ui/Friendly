@@ -527,6 +527,7 @@ export default function App() {
   const [forgotEmail, setForgotEmail] = useState("");
   const [forgotMsg, setForgotMsg] = useState("");
   const [forgotBusy, setForgotBusy] = useState(false);
+  const [forgotProvider, setForgotProvider] = useState("");
   const [resetToken, setResetToken] = useState(() => new URLSearchParams(window.location.search).get("reset_token") || "");
   const [resetPass, setResetPass] = useState("");
   const [resetConfirmPass, setResetConfirmPass] = useState("");
@@ -1278,8 +1279,10 @@ export default function App() {
     e.preventDefault();
     setForgotBusy(true);
     setForgotMsg("");
+    setForgotProvider("");
     try {
       const r = await api("/auth/forgot-password", { method: "POST", body: { email: forgotEmail.trim() } });
+      setForgotProvider(r.provider || "password");
       setForgotMsg(r.detail || "If that email is registered, a reset link has been sent.");
     } catch (err) {
       setForgotMsg(err.message || "Something went wrong.");
@@ -1998,7 +2001,7 @@ export default function App() {
                 <div style={{ textAlign: "right", marginTop: 4 }}>
                   <button
                     type="button"
-                    onClick={() => { setForgotOpen(true); setForgotEmail(""); setForgotMsg(""); }}
+                    onClick={() => { setForgotOpen(true); setForgotEmail(""); setForgotMsg(""); setForgotProvider(""); }}
                     style={{ background: "none", border: "none", color: "rgba(120,185,255,0.9)", fontSize: 12, cursor: "pointer", padding: 0 }}
                   >
                     Forgot password?
@@ -2121,7 +2124,31 @@ export default function App() {
               <button type="button" style={styles.linkMini} onClick={() => setForgotOpen(false)}>✕</button>
             </div>
             <div style={{ padding: "16px 20px" }}>
-              {forgotMsg ? (
+              {forgotMsg && forgotProvider === "google" ? (
+                <>
+                  <div style={{ color: "rgba(255,255,255,0.85)", fontSize: 13, lineHeight: 1.5, marginBottom: 12 }}>
+                    This account uses <b>Google sign-in</b> — no password reset needed. Continue with Google to regain access.
+                  </div>
+                  {googleClientId ? (
+                    <GoogleSignInButton
+                      clientId={googleClientId}
+                      apiBase={API_BASE}
+                      text="signin_with"
+                      intent="login"
+                      onSuccess={(accessToken) => {
+                        sessionStorage.setItem(LS_TOKEN, accessToken);
+                        setToken(accessToken);
+                        setForgotOpen(false);
+                        setForgotMsg("");
+                        setForgotProvider("");
+                      }}
+                      onError={(msg) => setForgotMsg(msg)}
+                    />
+                  ) : (
+                    <div style={{ color: "rgba(255,180,180,0.9)", fontSize: 12 }}>Google sign-in is not configured.</div>
+                  )}
+                </>
+              ) : forgotMsg ? (
                 <div style={{ color: "rgba(120,255,160,0.9)", fontSize: 13 }}>{forgotMsg}</div>
               ) : (
                 <form onSubmit={handleForgotSubmit}>
@@ -2197,7 +2224,31 @@ export default function App() {
               <button type="button" style={styles.linkMini} onClick={() => setForgotOpen(false)}>✕</button>
             </div>
             <div style={{ padding: "16px 20px" }}>
-              {forgotMsg ? (
+              {forgotMsg && forgotProvider === "google" ? (
+                <>
+                  <div style={{ color: "rgba(255,255,255,0.85)", fontSize: 13, lineHeight: 1.5, marginBottom: 12 }}>
+                    This account uses <b>Google sign-in</b> — no password reset needed. Continue with Google to regain access.
+                  </div>
+                  {googleClientId ? (
+                    <GoogleSignInButton
+                      clientId={googleClientId}
+                      apiBase={API_BASE}
+                      text="signin_with"
+                      intent="login"
+                      onSuccess={(accessToken) => {
+                        sessionStorage.setItem(LS_TOKEN, accessToken);
+                        setToken(accessToken);
+                        setForgotOpen(false);
+                        setForgotMsg("");
+                        setForgotProvider("");
+                      }}
+                      onError={(msg) => setForgotMsg(msg)}
+                    />
+                  ) : (
+                    <div style={{ color: "rgba(255,180,180,0.9)", fontSize: 12 }}>Google sign-in is not configured.</div>
+                  )}
+                </>
+              ) : forgotMsg ? (
                 <div style={{ color: "rgba(120,255,160,0.9)", fontSize: 13 }}>{forgotMsg}</div>
               ) : (
                 <form onSubmit={handleForgotSubmit}>

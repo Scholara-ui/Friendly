@@ -630,11 +630,19 @@ def register(payload: RegisterRequest, request: Request, db: Session = Depends(g
 def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db)):
     email = payload.email.strip().lower()
     u = db.query(User).filter(func.lower(User.email) == email).first()
-    # Silently skip Google-only users — they should use Google sign-in.
-    # Response stays generic to avoid leaking account existence.
-    if u and not u.password_hash:
-        u = None
-    if u:
+
+    # If the account is linked to Google (either google-only or both), tell the
+    # frontend to show a Google sign-in button instead of sending a reset email.
+    # Note: this reveals existence of Google-linked accounts for that email —
+    # an intentional trade-off so the user isn't stuck waiting for an email
+    # that can never unlock a Google-only account.
+    if u and u.google_id:
+        return {
+            "detail": "This account uses Google sign-in. Continue with Google to access it.",
+            "provider": "google",
+        }
+
+    if u and u.password_hash:
         db.query(PasswordResetToken).filter(
             PasswordResetToken.user_id == u.id,
             PasswordResetToken.used_at.is_(None),
@@ -655,7 +663,10 @@ def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db
         except Exception as exc:
             logger.error("Failed to send reset email: %s", exc)
 
-    return {"detail": "If that email is registered, a reset link has been sent"}
+    return {
+        "detail": "If that email is registered, a reset link has been sent",
+        "provider": "password",
+    }
 
 
 @app.post("/auth/reset-password")
