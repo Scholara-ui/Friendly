@@ -1838,10 +1838,19 @@ export default function App() {
           }}
         />
         <div style={styles.authCard}>
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, marginBottom: 16 }}>
-            <img src={logo} alt="Friendly" style={{ height: 52, width: "auto" }} />
-            <div style={{ lineHeight: 1.05, textAlign: "center" }}>
-              <div style={{ fontWeight: 950, fontSize: 20, letterSpacing: -0.7, position: "relative", display: "inline-block" }}>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, marginBottom: 14 }}>
+            <img
+              src={logo}
+              alt="Friendly"
+              style={{
+                height: 88,
+                width: "auto",
+                display: "block",
+                filter: "drop-shadow(0 6px 14px rgba(66,133,244,0.28))",
+              }}
+            />
+            <div style={{ lineHeight: 1, textAlign: "center" }}>
+              <div style={{ fontWeight: 950, fontSize: 32, letterSpacing: -1.1, position: "relative", display: "inline-block" }}>
                 <span
                   style={{
                     background: "linear-gradient(90deg, rgba(66,133,244,1) 0%, rgba(88,166,255,1) 100%)",
@@ -1865,9 +1874,9 @@ export default function App() {
                 <span
                   style={{
                     position: "absolute",
-                    top: -6,
-                    right: -7,
-                    fontSize: 10,
+                    top: -4,
+                    right: -10,
+                    fontSize: 12,
                     fontWeight: 900,
                     color: "rgba(255,255,255,0.55)",
                   }}
@@ -1876,6 +1885,17 @@ export default function App() {
                 >
                   ®
                 </span>
+              </div>
+              <div
+                style={{
+                  marginTop: 6,
+                  fontSize: 12,
+                  fontWeight: 500,
+                  letterSpacing: 0.3,
+                  color: "rgba(255,255,255,0.45)",
+                }}
+              >
+                Stay close. Chat freely.
               </div>
             </div>
           </div>
@@ -3301,7 +3321,7 @@ const styles = {
     background: "var(--panel)",
     border: "1px solid var(--border)",
     borderRadius: 20,
-    padding: "22px 24px 24px",
+    padding: "18px 24px 24px",
     boxShadow: "var(--shadow)",
     backdropFilter: "blur(18px)",
   },
